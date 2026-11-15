@@ -107,22 +107,25 @@ O denominador comum entre os harnesses é **MCP + skills no formato SKILL.md**. 
 | Agendamento nativo | sim | sim | limitado | não | não |
 | Canais de mensagem | sim | sim | não | não | não |
 
-## 5. Estrutura prevista do repositório
+## 5. Estrutura do repositório
 
 ```
 sexta-feira/
-├── core/            # motor em Rust (daemon + servidor MCP)
-├── skills/          # SKILL.md compartilhadas entre os harnesses
-├── persona/         # fonte única da identidade
-├── adapters/
-│   ├── hermes/
-│   ├── openclaw/
-│   ├── claude-code/
-│   ├── claude-desktop/
-│   └── opencode/
-├── cli/             # sexta-feira setup --harness=<nome>
-└── docs/
+├── crates/
+│   ├── sexta-feira-core/      # motor em Rust, sem conhecimento de harness
+│   ├── sexta-feira-adapters/  # tradução do motor para cada harness
+│   └── sexta-feira-cli/       # binário `sexta-feira`
+├── docs/                      # visão, arquitetura e stack
+└── spikes/                    # experimentos descartáveis
 ```
+
+Ainda a criar, conforme o desenvolvimento avançar:
+
+- `persona/`: fonte única da identidade.
+- `skills/`: `SKILL.md` compartilhadas entre os harnesses.
+- Arquivos de instalação de cada harness (plugin do Claude Code, configuração do Hermes etc.).
+
+As bibliotecas e ferramentas estão em [stack.md](stack.md).
 
 ## 6. MVP
 

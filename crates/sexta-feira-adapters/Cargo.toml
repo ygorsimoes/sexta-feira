@@ -1,0 +1,15 @@
+[package]
+name = "sexta-feira-adapters"
+description = "Adapters que traduzem o motor da Sexta-feira para cada harness."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+sexta-feira-core.workspace = true
+
+[lints]
+workspace = true

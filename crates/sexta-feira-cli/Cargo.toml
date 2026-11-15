@@ -1,0 +1,29 @@
+[package]
+name = "sexta-feira-cli"
+description = "CLI da Sexta-feira: setup e operação do motor."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "sexta-feira"
+path = "src/main.rs"
+
+[dependencies]
+sexta-feira-adapters.workspace = true
+sexta-feira-core.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+insta.workspace = true
+
+[lints]
+workspace = true

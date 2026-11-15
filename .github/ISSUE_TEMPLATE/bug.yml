@@ -1,0 +1,51 @@
+name: Bug
+description: Algo não funciona como deveria.
+title: "fix: "
+labels: [bug]
+body:
+  - type: textarea
+    id: o-que-aconteceu
+    attributes:
+      label: O que aconteceu
+      description: Descreva o comportamento observado. Cole a saída ou o log, sem segredos.
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: O que era esperado
+    validations:
+      required: true
+  - type: textarea
+    id: como-reproduzir
+    attributes:
+      label: Como reproduzir
+      description: Passos ou comandos, na ordem.
+      placeholder: |
+        1. Rodar `sexta-feira ...`
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      multiple: true
+      options:
+        - core
+        - adapters
+        - cli
+        - docs
+        - ci
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão ou commit
+      description: Saída de `sexta-feira --version` ou o hash do commit.
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: Ambiente
+      description: Sistema operacional, harness e versão do harness, quando fizer diferença.

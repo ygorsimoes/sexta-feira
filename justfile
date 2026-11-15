@@ -11,6 +11,11 @@ fmt:
 lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets --locked -- -D warnings
+    cargo machete
+
+# Gera a documentação, com avisos como erro.
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 
 # Roda os testes.
 test:
@@ -20,8 +25,13 @@ test:
 deny:
     cargo deny check
 
+# Verifica a ortografia e a segurança dos workflows.
+repo:
+    typos
+    zizmor --offline .github
+
 # Tudo o que o CI roda.
-ci: lint test deny
+ci: lint doc test deny repo
 
 # Revisa snapshots alterados.
 snapshots:

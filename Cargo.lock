@@ -419,7 +419,6 @@ dependencies = [
  "insta",
  "sexta-feira-adapters",
  "sexta-feira-core",
- "tracing",
  "tracing-subscriber",
 ]
 

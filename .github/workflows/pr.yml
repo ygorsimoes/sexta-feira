@@ -1,0 +1,44 @@
+name: PR
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  titulo:
+    name: Título da PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Só o squash está habilitado, então o título da PR vira a mensagem do commit na `main`.
+      - name: Confere o Conventional Commits
+        env:
+          TITULO: ${{ github.event.pull_request.title }}
+        run: |
+          padrao='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9-]+\))?!?: [^ ].*$'
+          if [[ "$TITULO" =~ $padrao ]]; then
+            echo "Título válido: $TITULO"
+          else
+            echo "::error::O título da PR deve seguir o Conventional Commits, por exemplo: feat(core): adiciona motor de políticas"
+            exit 1
+          fi
+
+  labels:
+    name: Labels por área
+    # As PRs do Dependabot rodam com token somente de leitura e já chegam com label.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          sync-labels: true

@@ -1,0 +1,51 @@
+name: Funcionalidade
+description: Uma capacidade nova da Sexta-feira.
+title: "feat: "
+labels: [funcionalidade]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema ou necessidade
+      description: O que hoje não é possível, ou é difícil, e por que isso importa.
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Proposta
+      description: Como a Sexta-feira deve se comportar depois da mudança.
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: Critérios de aceite
+      description: O que precisa ser verdade para a issue ser fechada.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      multiple: true
+      options:
+        - core
+        - adapters
+        - cli
+        - docs
+        - ci
+    validations:
+      required: true
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Alternativas consideradas
+  - type: textarea
+    id: fora-do-escopo
+    attributes:
+      label: Fora do escopo
+      description: O que esta issue não cobre, para a PR não crescer.

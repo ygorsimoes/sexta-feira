@@ -27,7 +27,7 @@ Bibliotecas e ferramentas confirmadas para o projeto. Uma biblioteca só entra n
 | Organização | Cargo workspace (`core`, `adapters`, `cli`) |
 | Rust | Edição 2024, versão fixada em `rust-toolchain.toml` |
 | Testes | `cargo-nextest`, `insta` (snapshots), `assert_cmd` |
-| Qualidade | `rustfmt`, `clippy` com avisos como erro, `cargo-deny`, `cargo-machete` (dependências sem uso), `typos` (ortografia) |
+| Qualidade | `rustfmt`, `clippy` com avisos como erro, `cargo-deny`, `cargo-machete` (dependências sem uso) |
 | CI | GitHub Actions, com `zizmor` para a segurança dos workflows |
 | Atualização de dependências | Dependabot (Cargo, GitHub Actions e versão do Rust) |
 | Tarefas locais | `just` |

@@ -45,7 +45,7 @@ cargo run -p sexta-feira-cli -- harnesses   # lista os harnesses previstos
 just                                        # lista as tarefas locais
 ```
 
-Todo trabalho entra na `main` por pull request, e a validação é o CI da PR: formatação, lints, testes, documentação, dependências, ortografia e segurança dos workflows. O fluxo completo, das issues ao merge, está em [CONTRIBUTING.md](CONTRIBUTING.md).
+Todo trabalho entra na `main` por pull request, e a validação é o CI da PR: formatação, lints, testes, documentação, dependências e segurança dos workflows. O fluxo completo, das issues ao merge, está em [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentação
 

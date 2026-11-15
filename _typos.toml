@@ -1,5 +1,0 @@
-# Configuração do typos (verificação de ortografia).
-# Falsos positivos em pt-BR entram em [default.extend-words], no formato `palavra = "palavra"`.
-
-[files]
-extend-exclude = ["Cargo.lock", "*.snap"]

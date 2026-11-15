@@ -26,7 +26,7 @@ Não é preciso rodar testes ou lints localmente. Quem quiser antecipar o CI pod
 | Formatação, lints e documentação | `cargo fmt`, `cargo clippy` com avisos como erro, `cargo doc`, dependências sem uso (`cargo machete`) |
 | Testes | `cargo nextest run`; snapshots do `insta` não podem mudar no CI |
 | Dependências | `cargo deny check` (licenças, avisos de segurança, origem) |
-| Ortografia e workflows | `typos` e `zizmor` |
+| Segurança dos workflows | `zizmor` |
 | Título da PR | Conventional Commits |
 
 O check `CI` resume os quatro primeiros e é o exigido para o merge, junto com `Título da PR`.

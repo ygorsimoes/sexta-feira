@@ -35,12 +35,10 @@ Labels: `bug`, `funcionalidade` e `tarefa` indicam o tipo e vêm do modelo; `cor
 | Formatação, lints e documentação | `cargo fmt`, `cargo clippy` com avisos como erro, `cargo doc`, dependências sem uso |
 | Testes | `cargo nextest run` |
 | Dependências | `cargo deny check` (licenças, avisos de segurança, origem) |
-| Ortografia e workflows | `typos` e `zizmor` |
+| Segurança dos workflows | `zizmor` |
 | Título da PR | Conventional Commits |
 
 O check `CI` resume os quatro primeiros. Além disso, o workflow `Auditoria` roda toda segunda-feira e procura avisos de segurança novos nas dependências.
-
-Se o `typos` acusar uma palavra correta em pt-BR, registre-a em `_typos.toml`.
 
 ## Dependências
 
@@ -54,7 +52,7 @@ Se o `typos` acusar uma palavra correta em pt-BR, registre-a em `_typos.toml`.
 O CI é a validação oficial; rodar as verificações localmente só antecipa o resultado.
 
 - Rust na versão fixada em `rust-toolchain.toml` (o `rustup` instala sozinho).
-- [`just`](https://github.com/casey/just), [`cargo-nextest`](https://nexte.st), [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny), [`cargo-insta`](https://insta.rs), [`cargo-machete`](https://github.com/bnjbvr/cargo-machete), [`typos`](https://github.com/crate-ci/typos) e [`zizmor`](https://github.com/zizmorcore/zizmor).
+- [`just`](https://github.com/casey/just), [`cargo-nextest`](https://nexte.st), [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny), [`cargo-insta`](https://insta.rs), [`cargo-machete`](https://github.com/bnjbvr/cargo-machete) e [`zizmor`](https://github.com/zizmorcore/zizmor).
 
 | Comando | O que faz |
 |---|---|
@@ -63,7 +61,7 @@ O CI é a validação oficial; rodar as verificações localmente só antecipa o
 | `just doc` | Gera a documentação, com avisos como erro |
 | `just test` | Roda os testes |
 | `just deny` | Verifica licenças e avisos de segurança das dependências |
-| `just repo` | Verifica a ortografia e a segurança dos workflows |
+| `just repo` | Verifica a segurança dos workflows |
 | `just ci` | Roda tudo o que o CI roda |
 | `just snapshots` | Revisa snapshots alterados |
 

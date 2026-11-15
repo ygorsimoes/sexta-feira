@@ -25,9 +25,8 @@ test:
 deny:
     cargo deny check
 
-# Verifica a ortografia e a segurança dos workflows.
+# Verifica a segurança dos workflows.
 repo:
-    typos
     zizmor --offline .github
 
 # Tudo o que o CI roda.

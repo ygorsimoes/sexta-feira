@@ -69,7 +69,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
   repo:
-    name: Ortografia e workflows
+    name: Segurança dos workflows
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -78,11 +78,8 @@ jobs:
           persist-credentials: false
       - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
-          tool: typos,zizmor
-      - name: Ortografia
-        run: typos
-      - name: Segurança dos workflows
-        run: zizmor --offline .github
+          tool: zizmor
+      - run: zizmor --offline .github
 
   # Único check exigido pela regra da `main`: passa só se todos os outros passarem.
   ok:

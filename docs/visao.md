@@ -51,7 +51,7 @@ O princípio central é que o valor fica fora do harness. O motor é o corpo (me
 ### 3.1 Componentes do motor
 
 - **Servidor MCP (HTTP, com autenticação)**: única interface entre os harnesses e o motor. Por ser remoto, atende também o Claude Desktop/claude.ai, que só aceitam conectores MCP remotos.
-- **Memória central**: preferências, pessoas, rotinas e histórico relevante. Os harnesses consultam e gravam via MCP. Proposta inicial: SQLite com busca vetorial.
+- **Memória central**: preferências, pessoas, rotinas e histórico relevante. Os harnesses consultam e gravam via MCP. Opção preferida: o [ai-memory](https://github.com/akitaonrails/ai-memory) rodando ao lado do motor na VPS, como serviço separado (ver seção 3.5).
 - **Ponte Composio**: todas as integrações externas (Gmail, Google Calendar etc.) passam pelo motor. Nenhum harness fala direto com o Composio.
 - **Motor de políticas**: decide, para cada ação, se ela é livre, se é executada com aviso ou se exige confirmação.
 - **Auditoria**: registro de tudo o que a Sexta-feira fez, com desfazer quando a ação permitir.
@@ -79,6 +79,21 @@ A confiança é progressiva: o usuário pode promover uma ação de "confirmaç�
 ### 3.4 Privacidade futura
 
 Cada dado e cada ferramenta recebe uma classificação desde o início (ex.: `privado`). Quando houver dados que não podem ir para um LLM na nuvem, a restrição vira uma regra do motor de políticas, sem reescrita.
+
+### 3.5 Memória: ai-memory
+
+O ai-memory é um binário em Rust com servidor MCP/HTTP, índice em SQLite e páginas em Markdown versionadas em git. Ele já tem integração com Hermes, OpenClaw, Claude Code, Claude Desktop e OpenCode, o que tira do MVP a construção da memória.
+
+Ele foi feito para agentes de programação, com memória organizada por projeto. Para o uso pessoal, a Sexta-feira usa um projeto dedicado (`sexta-feira/pessoal`).
+
+Um teste com o Hermes ([spikes/ai-memory-hermes](../spikes/ai-memory-hermes/README.md)) confirmou a conexão, a gravação e a consulta de memórias pessoais em pt-BR. O que o teste definiu para o design:
+
+- A busca por texto sozinha é insuficiente (10 de 17 consultas): falha em sinônimos e flexões. A busca semântica precisa estar ligada, com um modelo que funcione em pt-BR.
+- A Sexta-feira precisa de uma skill de memória própria, porque a do ai-memory só grava quando o usuário pede explicitamente.
+- O setup precisa configurar `terminal.cwd` no Hermes e o marcador `.ai-memory.toml`, para as sessões caírem no projeto pessoal.
+- Os hooks do ai-memory capturam as sessões direto, sem passar pelo motor de políticas. Isso terá de ser tratado quando houver restrições de privacidade.
+
+A adoção ainda depende de dois testes: um turno com um modelo real e a busca semântica em pt-BR. Se falharem, o ai-memory vira referência de design e a memória é construída no motor.
 
 ## 4. Pontos de extensão dos harnesses
 
@@ -128,4 +143,6 @@ Os demais adapters entram depois do MVP, na ordem a definir.
 - Como os botões de confirmação convivem com o gateway do Hermes, já que um bot só pode ter um processo lendo atualizações.
 - Como acessar o Composio a partir do Rust (API REST ou MCP do Composio).
 - Mecanismo de autenticação do servidor MCP exposto na VPS.
-- Modelo de dados da memória.
+- Memória: testar o ai-memory com um modelo real no Hermes e com busca semântica em pt-BR (qual modelo ou provedor de embeddings usar).
+- Como organizar as páginas da memória pessoal (pessoas, preferências, rotinas, datas).
+- O Hermes entrega as ferramentas MCP ao modelo de forma indireta (`tool_search` / `tool_call`); verificar o efeito disso no MCP da Sexta-feira.

@@ -15,9 +15,9 @@ Sexta-feira é um plugin agnóstico de harness que transforma um agente de IA em
 
 1. Crie uma branch a partir da `main`; nunca faça commit direto nela.
 2. Faça a mudança e abra a pull request preenchendo o modelo.
-3. A validação é o CI da pull request. Acompanhe os checks e corrija o que falhar antes de dar o trabalho por concluído.
+3. A validação final é o CI da pull request. Acompanhe os checks e corrija o que falhar antes de dar o trabalho por concluído.
 
-Não é preciso rodar testes ou lints localmente. Quem quiser antecipar o CI pode usar `just ci`.
+Antes de abrir a pull request, rode localmente o que estiver disponível (`just ci`, ou os comandos `cargo` da tabela abaixo) para não gastar uma rodada de CI com um erro simples. O `Cargo.lock` é sempre gerado pelo `cargo`, nunca editado à mão.
 
 ## O que o CI verifica
 

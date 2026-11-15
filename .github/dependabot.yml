@@ -1,0 +1,50 @@
+# Atualizações automáticas de dependências: uma PR agrupada por ecossistema, toda segunda-feira.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Sao_Paulo
+    cooldown:
+      default-days: 7
+    groups:
+      cargo:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: [dependencias]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Sao_Paulo
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: [dependencias]
+
+  # Ao aceitar a PR do toolchain, ajuste também `rust-version` no Cargo.toml da raiz.
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Sao_Paulo
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: [dependencias]

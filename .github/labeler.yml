@@ -1,0 +1,26 @@
+# Labels aplicadas às PRs conforme os arquivos alterados.
+
+core:
+  - changed-files:
+      - any-glob-to-any-file: "crates/sexta-feira-core/**"
+
+adapters:
+  - changed-files:
+      - any-glob-to-any-file: "crates/sexta-feira-adapters/**"
+
+cli:
+  - changed-files:
+      - any-glob-to-any-file: "crates/sexta-feira-cli/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "*.md"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "justfile"
+          - "deny.toml"

@@ -18,7 +18,6 @@ sexta-feira-core.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
-tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
@@ -27,3 +26,7 @@ insta.workspace = true
 
 [lints]
 workspace = true
+
+# A CLI ainda não usa nenhum adapter; o primeiro (Hermes) passa a usar esta dependência.
+[package.metadata.cargo-machete]
+ignored = ["sexta-feira-adapters"]

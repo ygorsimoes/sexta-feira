@@ -40,10 +40,10 @@ Tente, nesta ordem, disponibilizar um comando `sexta-feira` executável:
      - macOS `arm64` (`Apple Silicon`) → `aarch64-apple-darwin`
    - Consulte a última release em `https://api.github.com/repos/ygorsimoes/sexta-feira/releases/latest` (ou via `gh release`).
    - Baixe o `.tar.gz` correspondente **e** `SHA256SUMS.txt`.
-   - **Obrigatório:** valide o checksum com `sha256sum -c` (Linux) ou `shasum -a 256 -c` (macOS) filtrando pelo arquivo baixado antes de extrair. Se a verificação falhar, aborte e avise o usuário.
+   - **Obrigatório:** valide o checksum com `sha256sum -c` (Linux) ou `shasum -a 256 -c` (macOS) filtrando pelo arquivo baixado antes de extrair. Se o hash **divergir**, aborte imediatamente e avise o usuário. Se `SHA256SUMS.txt` ou a ferramenta de checksum estiver indisponível, não extraia às cegas: tente o item 4 (compilação), siga para o item 5 (fallback) ou peça consentimento explícito explicando o risco.
    - Extraia o binário `sexta-feira` e instale em um diretório do `PATH` do usuário (ex.: `~/.local/bin/sexta-feira`). Se precisar criar o diretório ou ajustar o `PATH` do shell, confirme antes com o usuário.
-4. **Compilação alternativa via código-fonte:** se a arquitetura/SO não tiver binário pré-compilado (por exemplo, macOS Intel ou outra plataforma), mas `cargo`/`rustup` estiverem instalados, ofereça clonar o repositório e rodar `cargo build --release --package sexta-feira-cli`.
-5. **CLI indisponível:** se o ambiente não tiver rede para Releases/Cargo, não suportar compilação nem executar binários, registre o motivo claramente e pule o Passo 3 seguindo para o **Passo 4** e depois **Passo 5B (Fallback assistido)**.
+4. **Compilação alternativa via código-fonte:** se a arquitetura/SO não tiver binário pré-compilado (por exemplo, macOS Intel) **ou se não for possível baixar/verificar o pacote de Release**, mas `git` e `cargo`/`rustup` estiverem instalados, ofereça clonar o repositório e rodar `cargo build --release --package sexta-feira-cli`.
+5. **CLI indisponível ou recusada:** se o ambiente não tiver acesso a Releases/Cargo, se a compilação falhar (ex.: `rustc` incompatível com `rust-toolchain.toml` sem `rustup`/rede), se o sistema não executar o binário ou se o usuário preferir não baixar/compilar a CLI agora, registre o motivo claramente e pule o Passo 3 seguindo para o **Passo 4** e depois **Passo 5B (Fallback assistido)**.
 
 ---
 
@@ -62,22 +62,25 @@ Interprete o JSON retornado (`id`, `disponivel`, `status`):
 
 ---
 
-## Passo 4 — Personalização em camadas (`~/.config/sexta-feira/`)
+## Passo 4 — Personalização em camadas (`${XDG_CONFIG_HOME:-~/.config}/sexta-feira/`)
 
 A CLI lê configurações em camadas (`figment`), nesta ordem de precedência:
 1. Padrão embutido (`recursos/mordomo/persona.toml` e `usuario.toml`).
-2. Diretório de configuração do usuário: `$XDG_CONFIG_HOME/sexta-feira/` ou `~/.config/sexta-feira/`.
+2. Diretório de configuração do usuário (`<dir-config>`): se `XDG_CONFIG_HOME` estiver definida e não vazia, usa **exclusivamente** `$XDG_CONFIG_HOME/sexta-feira/`; caso contrário, usa `~/.config/sexta-feira/`.
 3. Arquivos explícitos via `--persona <arquivo.toml>` e `--usuario <arquivo.toml>`.
 
 Antes de aplicar:
 
-1. Verifique se `~/.config/sexta-feira/usuario.toml` (ou `persona.toml`) já existe e mostre o estado atual ao usuário.
+1. Verifique se `<dir-config>/usuario.toml` (ou `persona.toml`) já existe e mostre o estado atual ao usuário.
 2. Faça **uma pergunta curta e prática** ao usuário para confirmar ou ajustar o básico em `usuario.toml`:
    - Forma de tratamento desejada (`tratamento`, padrão `"senhor"` — ex.: `"senhor"`, nome próprio, etc.);
-   - Preferências pessoais específicas para incluir em `preferencias` (ou manter o padrão).
-3. Se o usuário quiser personalizar, crie ou atualize `~/.config/sexta-feira/usuario.toml` (e/ou `persona.toml`) respeitando **estritamente** as chaves aceitas (`#[serde(deny_unknown_fields)]` rejeita qualquer chave desconhecida):
-   - **`usuario.toml`**: `tratamento` (string), `idioma` (string, ex.: `"pt-BR"`), `preferencias` (lista de strings).
-   - **`persona.toml`**: `nome` (string), `arquetipo` (string), `idioma` (string), `resumo` (string), `tom` (lista de strings), `diretrizes` (lista de strings), `limites` (lista de strings).
+   - Preferências pessoais específicas para definir em `preferencias` (ou manter o padrão).
+3. Se o usuário quiser personalizar, crie ou atualize `<dir-config>/usuario.toml` (e/ou `persona.toml`) observando estas regras rígidas do motor:
+   - **Sem chaves desconhecidas:** `#[serde(deny_unknown_fields)]` rejeita qualquer chave fora de:
+     - **`usuario.toml`**: `tratamento` (string), `idioma` (string, ex.: `"pt-BR"`), `preferencias` (lista de strings).
+     - **`persona.toml`**: `nome` (string), `arquetipo` (string), `idioma` (string), `resumo` (string), `tom` (lista de strings), `diretrizes` (lista de strings), `limites` (lista de strings).
+   - **Listas substituem integralmente o padrão:** definir `preferencias`, `tom`, `diretrizes` ou `limites` substitui toda a lista base (não concatena). Para *acrescentar* itens mantendo os padrões, consulte `recursos/mordomo/*.toml` e inclua os itens desejados; para herdar o padrão, omita a chave.
+   - **Sem valores vazios e mantendo concisão:** nunca grave strings vazias/em branco nem listas vazias (`[]`), pois falham na validação. No Hermes, `SOUL.md` tem limite de 80 linhas — mantenha listas e textos objetivos.
 
 ---
 
@@ -116,7 +119,7 @@ Use este caminho quando `sexta-feira --json harnesses` mostrar `"disponivel": fa
    - Leia `recursos/mordomo/persona.toml` e `recursos/mordomo/usuario.toml` do repositório local, ou diretamente das URLs oficiais:
      - `https://raw.githubusercontent.com/ygorsimoes/sexta-feira/main/recursos/mordomo/persona.toml`
      - `https://raw.githubusercontent.com/ygorsimoes/sexta-feira/main/recursos/mordomo/usuario.toml`
-   - Se existirem `~/.config/sexta-feira/persona.toml` ou `~/.config/sexta-feira/usuario.toml`, aplique seus campos sobre o padrão (listas sobrescrevem a lista base; campos omitidos herdam o padrão).
+   - Se existirem `persona.toml` ou `usuario.toml` em `<dir-config>` (`${XDG_CONFIG_HOME:-~/.config}/sexta-feira/`), aplique seus campos sobre o padrão (listas sobrescrevem a lista base; campos omitidos herdam o padrão).
 3. **Mapear para as convenções reais do harness:**
    - Descubra onde este harness armazena instruções/persona e perfil/memórias do usuário (por exemplo: `CLAUDE.md` no projeto ou em `~/.claude/CLAUDE.md` no Claude Code; `AGENTS.md` / configuração do projeto no OpenCode ou OpenClaw; instruções de projeto no Claude Desktop; regras ou instruções equivalentes no harness atual).
    - Traduza os campos (`nome`, `arquetipo`, `idioma`, `resumo`, `tom`, `diretrizes`, `limites`, `tratamento`, `preferencias`) em Markdown limpo, fiel ao tom formal J.A.R.V.I.S. em `pt-BR`.

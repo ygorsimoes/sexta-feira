@@ -1,13 +1,14 @@
 # Guia para agentes
 
-Sexta-feira é um plugin agnóstico de harness que transforma um agente de IA em um mordomo virtual. Leia [docs/visao.md](docs/visao.md) antes de mudanças de arquitetura e [CONTRIBUTING.md](CONTRIBUTING.md) para o fluxo de issues e pull requests.
+Sexta-feira é um pacote opinativo e agnóstico de harness para configurar um agente de IA como um mordomo virtual. Leia [docs/visao.md](docs/visao.md) antes de mudanças de arquitetura e [CONTRIBUTING.md](CONTRIBUTING.md) para o fluxo de issues e pull requests.
 
 ## Estrutura
 
-- `crates/sexta-feira-core`: motor, sem conhecimento de harness.
-- `crates/sexta-feira-adapters`: tradução do motor para cada harness.
+- `crates/sexta-feira-core`: modelo agnóstico do mordomo e motor declarativo de setup, sem conhecimento de harness.
+- `crates/sexta-feira-adapters`: catálogo de harnesses e tradução do setup para cada harness.
 - `crates/sexta-feira-cli`: binário `sexta-feira`.
-- `docs/`: visão, arquitetura e stack.
+- `recursos/`: fonte única dos ativos do mordomo (persona, perfil do usuário e futuros recursos embutidos).
+- `docs/`: visão, arquitetura, stack e especificações.
 - `spikes/`: experimentos descartáveis, fora do workspace.
 - `.github/`: workflows, Dependabot e modelos de issue e de pull request.
 

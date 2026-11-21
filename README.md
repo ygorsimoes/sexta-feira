@@ -8,18 +8,19 @@ A identidade, as regras de conduta, as skills e as configurações preferidas fi
 
 ## Situação
 
-O projeto está no início. A fundação do repositório existe (workspace, CI, convenções); o pacote de setup e os adapters ainda não. O primeiro recorte (MVP) está descrito em [docs/visao.md](docs/visao.md#6-mvp).
+O primeiro recorte do MVP está implementado: o núcleo declarativo em `sexta-feira-core` carrega a persona padrão (estilo J.A.R.V.I.S. em `pt-BR`, tratando o usuário por `"senhor"`) e o adapter do Hermes provisiona o perfil isolado `sexta-feira` (`SOUL.md` e `memories/USER.md`) via CLI.
 
 | Parte | Situação |
 |---|---|
 | Fundação do repositório | pronta |
-| Modelo do setup e persona (`sexta-feira-core`) | não iniciado |
-| Adapter do Hermes | não iniciado |
-| Demais adapters | depois do MVP |
+| Modelo do setup e motor declarativo (`sexta-feira-core`) | implementado (Recorte 1 — persona) |
+| Adapter do Hermes (`SOUL.md` e `memories/USER.md`) | implementado (Recorte 1) |
+| Skills, scripts, `config.yaml` e rotinas no Hermes | próximos incrementos |
+| Demais adapters (`OpenClaw`, `Claude Code`, `Claude Desktop`, `OpenCode`) | depois do MVP |
 
 ## Harnesses previstos
 
-- Hermes Agent (primeiro)
+- Hermes Agent (primeiro — implementado para persona e perfil)
 - OpenClaw
 - Claude Code
 - Claude Desktop / claude.ai
@@ -29,10 +30,12 @@ O projeto está no início. A fundação do repositório existe (workspace, CI, 
 
 ```text
 crates/
-├── sexta-feira-core/      # modelo e contratos agnósticos de harness
-├── sexta-feira-adapters/  # tradução e aplicação do setup para cada harness
+├── sexta-feira-core/      # modelo agnóstico do mordomo e motor declarativo
+├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
 └── sexta-feira-cli/       # binário `sexta-feira`
-docs/                      # visão, arquitetura e stack
+recursos/
+└── mordomo/               # fonte única da persona e do perfil do usuário
+docs/                      # visão, arquitetura, stack e especificações
 spikes/                    # experimentos descartáveis, fora do workspace
 ```
 
@@ -41,8 +44,11 @@ spikes/                    # experimentos descartáveis, fora do workspace
 A versão do Rust está fixada em `rust-toolchain.toml`; o `rustup` a instala sozinho.
 
 ```bash
-cargo run -p sexta-feira-cli -- harnesses   # lista os harnesses previstos
-just                                        # lista as tarefas locais
+cargo run -p sexta-feira-cli -- harnesses               # lista os harnesses previstos
+cargo run -p sexta-feira-cli -- plano hermes            # exibe o plano sem alterar o disco
+cargo run -p sexta-feira-cli -- aplicar hermes          # aplica o perfil `sexta-feira` no Hermes
+cargo run -p sexta-feira-cli -- verificar hermes        # verifica se o perfil está sincronizado
+just                                                    # lista as tarefas locais
 ```
 
 Todo trabalho entra na `main` por pull request, e a validação é o CI da PR: formatação, lints, testes, documentação, dependências e segurança dos workflows. O fluxo completo, das issues ao merge, está em [CONTRIBUTING.md](CONTRIBUTING.md).

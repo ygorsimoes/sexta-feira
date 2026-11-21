@@ -45,8 +45,8 @@ O check `CI` resume os quatro primeiros. Além disso, o workflow `Auditoria` rod
 As versões e o `CHANGELOG.md` são gerenciados automaticamente pelo [`release-please`](https://github.com/googleapis/release-please) no workflow `Release` (`.github/workflows/release.yml`), configurado por `release-please-config.json` e `.release-please-manifest.json`:
 
 1. A cada push na `main`, o `release-please` analisa os commits Conventional Commits e abre ou atualiza a PR de release (`chore(main): release X.Y.Z`), atualizando `CHANGELOG.md`, `Cargo.toml` (`[workspace.package].version`), `Cargo.lock` e `.release-please-manifest.json`.
-2. Ao fazer o merge da PR de release, o `release-please` cria a tag `vX.Y.Z` e a Release no GitHub.
-3. Em seguida, o pipeline de CD compila o binário `sexta-feira` em modo release para `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` e `aarch64-apple-darwin`, gera `SHA256SUMS.txt` e anexa os artefatos à Release.
+2. Ao fazer o merge da PR de release, o `release-please` cria a tag `vX.Y.Z` e publica a Release no GitHub.
+3. A publicação da Release dispara o workflow `CD` (`.github/workflows/cd.yml`), que compila o binário `sexta-feira` em modo release para `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` e `aarch64-apple-darwin`, gera `SHA256SUMS.txt` e anexa os artefatos à Release.
 
 > **Importante:** como o ruleset da `main` exige os checks `CI` e `Título da PR` em toda PR, configure o secret `RELEASE_PLEASE_TOKEN` (PAT fino ou token de GitHub App com permissão de leitura/escrita em `contents`, `pull_requests` e `issues`) nas configurações do repositório. Sem ele, o `GITHUB_TOKEN` padrão ainda abre a PR de release, mas o GitHub não dispara os workflows de `pull_request` automaticamente.
 

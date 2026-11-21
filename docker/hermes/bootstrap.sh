@@ -25,11 +25,13 @@ HERMES_MODEL="${HERMES_MODEL:-anthropic/claude-sonnet-4}"
 HERMES_BASE_URL="${HERMES_BASE_URL:-https://openrouter.ai/api/v1}"
 PYTHON_BIN="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
 
-if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+OPENROUTER_API_KEY_LIMPA="$(printf '%s' "${OPENROUTER_API_KEY:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+if [ -z "$OPENROUTER_API_KEY_LIMPA" ]; then
     echo "Erro: OPENROUTER_API_KEY não está definida ou está vazia." >&2
-    echo "Preencha OPENROUTER_API_KEY em docker/hermes/.env e tente novamente." >&2
+    echo "Preencha OPENROUTER_API_KEY no arquivo .env na raiz e tente novamente." >&2
     exit 1
 fi
+export OPENROUTER_API_KEY="$OPENROUTER_API_KEY_LIMPA"
 
 if [ ! -x "$PYTHON_BIN" ]; then
     PYTHON_BIN="$(command -v python3)"
@@ -109,7 +111,8 @@ if not found:
 
 if changed:
     tmp_path = f"{env_path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as fh:
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.writelines(lines)
     os.chmod(tmp_path, 0o600)
     os.replace(tmp_path, env_path)

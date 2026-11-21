@@ -412,11 +412,11 @@ fn mesclar_bloco(
         return Ok(bloco_completo);
     };
 
-    let pos_inicio = texto.find(inicio);
-    let pos_fim = texto.find(fim);
+    let qtd_inicio = texto.matches(inicio).count();
+    let qtd_fim = texto.matches(fim).count();
 
-    match (pos_inicio, pos_fim) {
-        (None, None) => {
+    match (qtd_inicio, qtd_fim) {
+        (0, 0) => {
             if texto.trim().is_empty() {
                 Ok(bloco_completo)
             } else {
@@ -426,11 +426,20 @@ fn mesclar_bloco(
                 ))
             }
         }
-        (Some(i), Some(f)) if i < f => {
+        (1, 1)
+            if let Some(i) = texto.find(inicio)
+                && let Some(f) = texto.find(fim)
+                && i + inicio.len() <= f =>
+        {
             let antes = &texto[..i];
+            let separador = if antes.is_empty() || antes.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            };
             let restante = &texto[f + fim.len()..];
             let depois = restante.strip_prefix('\n').unwrap_or(restante);
-            Ok(format!("{antes}{bloco_completo}{depois}"))
+            Ok(format!("{antes}{separador}{bloco_completo}{depois}"))
         }
         _ => Err(ErroDePlano::DelimitadoresInvalidos {
             caminho: caminho.to_path_buf(),
@@ -948,5 +957,59 @@ mod tests {
         }];
         let p2 = planejar(v2, estado).expect("plano v2");
         assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
+    }
+
+    #[test]
+    fn bloco_delimitado_rejeita_marcadores_duplicados() {
+        let dir = DirTemporario::novo("marcadores-duplicados");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let user = dir.path().join("USER.md");
+        let inicio = "<!-- sexta-feira:inicio -->";
+        let fim = "<!-- sexta-feira:fim -->";
+
+        fs::write(
+            &user,
+            format!("{inicio}\nbloco 1\n{fim}\n\n{inicio}\nbloco 2\n{fim}\n"),
+        )
+        .expect("grava arquivo com blocos duplicados");
+
+        let desejados = vec![ArquivoDesejado {
+            caminho: user,
+            conteudo: "Tratamento: senhor\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        }];
+
+        let err = planejar(desejados, estado).expect_err("marcadores duplicados devem falhar");
+        assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
+    }
+
+    #[test]
+    fn bloco_delimitado_separa_linha_quando_prefixo_nao_termina_com_quebra() {
+        let dir = DirTemporario::novo("prefixo-sem-quebra");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let user = dir.path().join("USER.md");
+        let inicio = "<!-- sexta-feira:inicio -->";
+        let fim = "<!-- sexta-feira:fim -->";
+
+        fs::write(
+            &user,
+            format!("Prefixo sem quebra{inicio}\nantigo\n{fim}\n"),
+        )
+        .expect("grava prefixo sem quebra");
+
+        let desejados = vec![ArquivoDesejado {
+            caminho: user.clone(),
+            conteudo: "novo\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        }];
+
+        let plano = planejar(desejados, estado).expect("planeja");
+        aplicar(&plano, false).expect("aplica");
+
+        let resultado = fs::read_to_string(&user).expect("lê resultado");
+        assert_eq!(
+            resultado,
+            format!("Prefixo sem quebra\n{inicio}\nnovo\n{fim}\n")
+        );
     }
 }

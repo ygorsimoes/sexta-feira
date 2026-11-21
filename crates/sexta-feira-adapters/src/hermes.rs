@@ -149,19 +149,19 @@ impl AdaptadorDeSetup for AdaptadorHermes {
         let user = renderizar_user(definicao);
 
         Ok(vec![
-            ArquivoDesejado {
-                caminho: perfil_dir.join("SOUL.md"),
-                conteudo: soul,
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            },
-            ArquivoDesejado {
-                caminho: perfil_dir.join("memories").join("USER.md"),
-                conteudo: user,
-                estrategia: EstrategiaDeEscrita::BlocoDelimitado {
+            ArquivoDesejado::new(
+                perfil_dir.join("SOUL.md"),
+                soul,
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+            ArquivoDesejado::new(
+                perfil_dir.join("memories").join("USER.md"),
+                user,
+                EstrategiaDeEscrita::BlocoDelimitado {
                     inicio: MARCADOR_USER_INICIO,
                     fim: MARCADOR_USER_FIM,
                 },
-            },
+            ),
         ])
     }
 }

@@ -10,6 +10,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+/// Permissão aplicada ao arquivo no sistema de arquivos de destino.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PermissaoDeArquivo {
+    /// Permissão padrão do sistema para arquivos comuns.
+    #[default]
+    Padrao,
+    /// Marca o arquivo como executável (`+x`) em plataformas Unix.
+    Executavel,
+}
+
 /// Estratégia de gerenciamento de um arquivo no destino.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EstrategiaDeEscrita {
@@ -33,6 +43,28 @@ pub struct ArquivoDesejado {
     pub conteudo: String,
     /// Estratégia adotada para criação, atualização e detecção de conflitos.
     pub estrategia: EstrategiaDeEscrita,
+    /// Permissão desejada para o arquivo.
+    pub permissao: PermissaoDeArquivo,
+}
+
+impl ArquivoDesejado {
+    /// Cria um arquivo desejado com permissão padrão (`PermissaoDeArquivo::Padrao`).
+    #[must_use]
+    pub const fn new(caminho: PathBuf, conteudo: String, estrategia: EstrategiaDeEscrita) -> Self {
+        Self {
+            caminho,
+            conteudo,
+            estrategia,
+            permissao: PermissaoDeArquivo::Padrao,
+        }
+    }
+
+    /// Define a permissão desejada para o arquivo.
+    #[must_use]
+    pub const fn com_permissao(mut self, permissao: PermissaoDeArquivo) -> Self {
+        self.permissao = permissao;
+        self
+    }
 }
 
 /// Classificação da operação necessária para sincronizar um arquivo.
@@ -62,6 +94,8 @@ pub struct AcaoPlanejada {
     pub conteudo_final: String,
     /// Estratégia associada ao arquivo.
     pub estrategia: EstrategiaDeEscrita,
+    /// Permissão associada ao arquivo.
+    pub permissao: PermissaoDeArquivo,
     /// Resumo textual legível das mudanças previstas, quando houver.
     pub resumo_diff: Option<String>,
 }
@@ -160,6 +194,7 @@ pub enum ErroDePlano {
 
 const VERSAO_ESTADO_ATUAL: u32 = 1;
 const LIMITE_CELULAS_LCS: usize = 250_000;
+const DIFF_PERMISSAO_EXECUTAVEL: &str = "~ ajuste de permissão para executável (+x)";
 
 const fn versao_estado_atual() -> u32 {
     VERSAO_ESTADO_ATUAL
@@ -199,7 +234,7 @@ pub fn planejar(
         let atual = ler_opcional(&arquivo.caminho)?;
         let acao = match arquivo.estrategia {
             EstrategiaDeEscrita::ArquivoIntegral => {
-                planejar_integral(&arquivo, atual.as_deref(), &estado, raiz_estado)
+                planejar_integral(&arquivo, atual.as_deref(), &estado, raiz_estado)?
             }
             EstrategiaDeEscrita::BlocoDelimitado { inicio, fim } => {
                 planejar_bloco_delimitado(&arquivo, atual.as_deref(), inicio, fim)?
@@ -275,11 +310,15 @@ fn aplicar_acao(
         OperacaoPlanejada::SemAlteracoes => Ok(()),
         OperacaoPlanejada::Criar => {
             gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            garantir_permissao(&acao.caminho, acao.permissao)?;
             *criados += 1;
             Ok(())
         }
         OperacaoPlanejada::Atualizar => {
-            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            if acao.resumo_diff.as_deref() != Some(DIFF_PERMISSAO_EXECUTAVEL) {
+                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            }
+            garantir_permissao(&acao.caminho, acao.permissao)?;
             *atualizados += 1;
             Ok(())
         }
@@ -293,6 +332,7 @@ fn aplicar_acao(
                 backups_criados.push(backup);
             }
             gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            garantir_permissao(&acao.caminho, acao.permissao)?;
             *atualizados += 1;
             Ok(())
         }
@@ -316,6 +356,11 @@ pub fn verificar(
         let (item_ok, detalhe) = match acao.operacao {
             OperacaoPlanejada::SemAlteracoes => (true, "sincronizado".to_owned()),
             OperacaoPlanejada::Criar => (false, "arquivo ausente".to_owned()),
+            OperacaoPlanejada::Atualizar
+                if acao.resumo_diff.as_deref() == Some(DIFF_PERMISSAO_EXECUTAVEL) =>
+            {
+                (false, "permissão executável ausente".to_owned())
+            }
             OperacaoPlanejada::Atualizar => (false, "atualização pendente".to_owned()),
             OperacaoPlanejada::Conflito { motivo } => (false, format!("conflito: {motivo}")),
         };
@@ -340,28 +385,40 @@ fn planejar_integral(
     atual: Option<&str>,
     estado: &EstadoAplicado,
     raiz_estado: Option<&Path>,
-) -> AcaoPlanejada {
+) -> Result<AcaoPlanejada, ErroDePlano> {
     let desejado = normalizar_quebras(&arquivo.conteudo);
     let Some(conteudo_atual) = atual else {
         let resumo_diff = Some(gerar_resumo_diff("", &desejado));
-        return AcaoPlanejada {
+        return Ok(AcaoPlanejada {
             caminho: arquivo.caminho.clone(),
             operacao: OperacaoPlanejada::Criar,
             conteudo_final: desejado,
             estrategia: arquivo.estrategia,
+            permissao: arquivo.permissao,
             resumo_diff,
-        };
+        });
     };
 
     let atual_normalizado = normalizar_quebras(conteudo_atual);
     if atual_normalizado == desejado {
-        return AcaoPlanejada {
+        if permissao_pendente(&arquivo.caminho, arquivo.permissao)? {
+            return Ok(AcaoPlanejada {
+                caminho: arquivo.caminho.clone(),
+                operacao: OperacaoPlanejada::Atualizar,
+                conteudo_final: desejado,
+                estrategia: arquivo.estrategia,
+                permissao: arquivo.permissao,
+                resumo_diff: Some(DIFF_PERMISSAO_EXECUTAVEL.to_owned()),
+            });
+        }
+        return Ok(AcaoPlanejada {
             caminho: arquivo.caminho.clone(),
             operacao: OperacaoPlanejada::SemAlteracoes,
             conteudo_final: desejado,
             estrategia: arquivo.estrategia,
+            permissao: arquivo.permissao,
             resumo_diff: None,
-        };
+        });
     }
 
     let chave = chave_estado(&arquivo.caminho, raiz_estado);
@@ -377,13 +434,14 @@ fn planejar_integral(
     };
 
     let resumo_diff = Some(gerar_resumo_diff(&atual_normalizado, &desejado));
-    AcaoPlanejada {
+    Ok(AcaoPlanejada {
         caminho: arquivo.caminho.clone(),
         operacao,
         conteudo_final: desejado,
         estrategia: arquivo.estrategia,
+        permissao: arquivo.permissao,
         resumo_diff,
-    }
+    })
 }
 
 fn planejar_bloco_delimitado(
@@ -407,7 +465,14 @@ fn planejar_bloco_delimitado(
             Some(gerar_resumo_diff("", &conteudo_final)),
         ),
         Some(ref anterior) if *anterior == conteudo_final => {
-            (OperacaoPlanejada::SemAlteracoes, None)
+            if permissao_pendente(&arquivo.caminho, arquivo.permissao)? {
+                (
+                    OperacaoPlanejada::Atualizar,
+                    Some(DIFF_PERMISSAO_EXECUTAVEL.to_owned()),
+                )
+            } else {
+                (OperacaoPlanejada::SemAlteracoes, None)
+            }
         }
         Some(ref anterior) => (
             OperacaoPlanejada::Atualizar,
@@ -420,8 +485,62 @@ fn planejar_bloco_delimitado(
         operacao,
         conteudo_final,
         estrategia: arquivo.estrategia,
+        permissao: arquivo.permissao,
         resumo_diff,
     })
+}
+
+#[cfg(unix)]
+fn permissao_pendente(caminho: &Path, permissao: PermissaoDeArquivo) -> Result<bool, ErroDePlano> {
+    use std::os::unix::fs::PermissionsExt;
+
+    if permissao != PermissaoDeArquivo::Executavel {
+        return Ok(false);
+    }
+    let meta = fs::metadata(caminho).map_err(|fonte| ErroDePlano::Io {
+        caminho: caminho.to_path_buf(),
+        fonte,
+    })?;
+    Ok(meta.permissions().mode() & 0o111 == 0)
+}
+
+#[cfg(not(unix))]
+const fn permissao_pendente(
+    _caminho: &Path,
+    _permissao: PermissaoDeArquivo,
+) -> Result<bool, ErroDePlano> {
+    Ok(false)
+}
+
+#[cfg(unix)]
+fn garantir_permissao(caminho: &Path, permissao: PermissaoDeArquivo) -> Result<(), ErroDePlano> {
+    use std::os::unix::fs::PermissionsExt;
+
+    if permissao != PermissaoDeArquivo::Executavel {
+        return Ok(());
+    }
+    let meta = fs::metadata(caminho).map_err(|fonte| ErroDePlano::Io {
+        caminho: caminho.to_path_buf(),
+        fonte,
+    })?;
+    let mut perms = meta.permissions();
+    let atual = perms.mode();
+    if atual & 0o111 == 0 {
+        perms.set_mode(atual | 0o111);
+        fs::set_permissions(caminho, perms).map_err(|fonte| ErroDePlano::Io {
+            caminho: caminho.to_path_buf(),
+            fonte,
+        })?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+const fn garantir_permissao(
+    _caminho: &Path,
+    _permissao: PermissaoDeArquivo,
+) -> Result<(), ErroDePlano> {
+    Ok(())
 }
 
 fn mesclar_bloco(
@@ -808,19 +927,19 @@ mod tests {
         let user = dir.path().join("memories/USER.md");
 
         let desejados = vec![
-            ArquivoDesejado {
-                caminho: soul.clone(),
-                conteudo: "# Sexta-feira\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            },
-            ArquivoDesejado {
-                caminho: user.clone(),
-                conteudo: "Tratamento: senhor\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::BlocoDelimitado {
+            ArquivoDesejado::new(
+                soul.clone(),
+                "# Sexta-feira\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+            ArquivoDesejado::new(
+                user.clone(),
+                "Tratamento: senhor\n".to_owned(),
+                EstrategiaDeEscrita::BlocoDelimitado {
                     inicio: "<!-- inicio -->",
                     fim: "<!-- fim -->",
                 },
-            },
+            ),
         ];
 
         let plano = planejar(desejados.clone(), estado.clone()).expect("planejamento inicial");
@@ -856,19 +975,19 @@ mod tests {
         fs::write(&existente, "# Persona manual do usuário\n").expect("grava arquivo prévio");
 
         let desejados = vec![
-            ArquivoDesejado {
-                caminho: novo.clone(),
-                conteudo: "Tratamento: senhor\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::BlocoDelimitado {
+            ArquivoDesejado::new(
+                novo.clone(),
+                "Tratamento: senhor\n".to_owned(),
+                EstrategiaDeEscrita::BlocoDelimitado {
                     inicio: "<!-- inicio -->",
                     fim: "<!-- fim -->",
                 },
-            },
-            ArquivoDesejado {
-                caminho: existente,
-                conteudo: "# Sexta-feira\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            },
+            ),
+            ArquivoDesejado::new(
+                existente,
+                "# Sexta-feira\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
         ];
 
         let plano = planejar(desejados, estado).expect("planejamento com conflito");
@@ -889,11 +1008,11 @@ mod tests {
         let estado = dir.path().join(".sexta-feira-estado.toml");
         let soul = dir.path().join("SOUL.md");
 
-        let desejados = vec![ArquivoDesejado {
-            caminho: soul.clone(),
-            conteudo: "# Versão gerenciada\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-        }];
+        let desejados = vec![ArquivoDesejado::new(
+            soul.clone(),
+            "# Versão gerenciada\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
 
         let plano_inicial = planejar(desejados.clone(), estado.clone()).expect("plano inicial");
         aplicar(&plano_inicial, false).expect("aplica inicial");
@@ -935,11 +1054,11 @@ mod tests {
         fs::write(&user, "# Notas aprendidas\n- Prefere café sem açúcar.\n")
             .expect("grava memória prévia");
 
-        let v1 = vec![ArquivoDesejado {
-            caminho: user.clone(),
-            conteudo: "Tratamento: senhor\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-        }];
+        let v1 = vec![ArquivoDesejado::new(
+            user.clone(),
+            "Tratamento: senhor\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        )];
         let p1 = planejar(v1, estado.clone()).expect("plano sem marcadores");
         assert!(matches!(p1.acoes[0].operacao, OperacaoPlanejada::Atualizar));
         aplicar(&p1, false).expect("aplica bloco no topo");
@@ -951,11 +1070,11 @@ mod tests {
         let com_prefixo = format!("Cabeçalho do usuário\n\n{apos_v1}\nRodapé do usuário\n");
         fs::write(&user, com_prefixo).expect("adiciona antes e depois");
 
-        let v2 = vec![ArquivoDesejado {
-            caminho: user.clone(),
-            conteudo: "Tratamento: senhor\nIdioma: pt-BR\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-        }];
+        let v2 = vec![ArquivoDesejado::new(
+            user.clone(),
+            "Tratamento: senhor\nIdioma: pt-BR\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        )];
         let p2 = planejar(v2, estado.clone()).expect("plano com marcadores");
         aplicar(&p2, false).expect("atualiza só o bloco interno");
 
@@ -966,11 +1085,11 @@ mod tests {
         assert!(apos_v2.contains("Rodapé do usuário"));
 
         fs::write(&user, format!("{inicio}\nSem marcador de fim\n")).expect("escreve inválido");
-        let v3 = vec![ArquivoDesejado {
-            caminho: user,
-            conteudo: "Tratamento: senhor\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-        }];
+        let v3 = vec![ArquivoDesejado::new(
+            user,
+            "Tratamento: senhor\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        )];
         let err = planejar(v3, estado).expect_err("marcador único deve falhar");
         assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
     }
@@ -980,11 +1099,11 @@ mod tests {
         let dir = DirTemporario::novo("backup-numerado");
         let estado = dir.path().join(".sexta-feira-estado.toml");
         let soul = dir.path().join("SOUL.md");
-        let desejados = vec![ArquivoDesejado {
-            caminho: soul.clone(),
-            conteudo: "# Gerenciado\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-        }];
+        let desejados = vec![ArquivoDesejado::new(
+            soul.clone(),
+            "# Gerenciado\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
 
         let p0 = planejar(desejados.clone(), estado.clone()).expect("plano inicial");
         aplicar(&p0, false).expect("aplica inicial");
@@ -1013,11 +1132,11 @@ mod tests {
         let dir = DirTemporario::novo("recupera-estado");
         let estado = dir.path().join(".sexta-feira-estado.toml");
         let soul = dir.path().join("SOUL.md");
-        let v1 = vec![ArquivoDesejado {
-            caminho: soul.clone(),
-            conteudo: "# V1\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-        }];
+        let v1 = vec![ArquivoDesejado::new(
+            soul.clone(),
+            "# V1\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
 
         let p1 = planejar(v1.clone(), estado.clone()).expect("plano v1");
         aplicar(&p1, false).expect("aplica v1");
@@ -1031,11 +1150,11 @@ mod tests {
         aplicar(&p_rec, false).expect("aplica recuperação");
         assert!(estado.exists(), "estado deve ser recriado");
 
-        let v2 = vec![ArquivoDesejado {
-            caminho: soul,
-            conteudo: "# V2\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-        }];
+        let v2 = vec![ArquivoDesejado::new(
+            soul,
+            "# V2\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
         let p2 = planejar(v2, estado).expect("plano v2");
         assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
     }
@@ -1048,16 +1167,16 @@ mod tests {
         let bloqueado = ok_path.join("b.md");
 
         let desejados = vec![
-            ArquivoDesejado {
-                caminho: ok_path.clone(),
-                conteudo: "# Ok\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            },
-            ArquivoDesejado {
-                caminho: bloqueado,
-                conteudo: "# Falha\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            },
+            ArquivoDesejado::new(
+                ok_path.clone(),
+                "# Ok\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+            ArquivoDesejado::new(
+                bloqueado,
+                "# Falha\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
         ];
 
         let plano = planejar(desejados, estado.clone()).expect("planeja");
@@ -1086,19 +1205,19 @@ mod tests {
             "SOUL.md"
         );
 
-        let v1 = vec![ArquivoDesejado {
-            caminho: soul_redundante,
-            conteudo: "# V1\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-        }];
+        let v1 = vec![ArquivoDesejado::new(
+            soul_redundante,
+            "# V1\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
         let p1 = planejar(v1, estado.clone()).expect("plano v1");
         aplicar(&p1, false).expect("aplica v1");
 
-        let v2 = vec![ArquivoDesejado {
-            caminho: soul_limpo,
-            conteudo: "# V2\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-        }];
+        let v2 = vec![ArquivoDesejado::new(
+            soul_limpo,
+            "# V2\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
         let p2 = planejar(v2, estado).expect("plano v2");
         assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
     }
@@ -1117,11 +1236,11 @@ mod tests {
         )
         .expect("grava arquivo com blocos duplicados");
 
-        let desejados = vec![ArquivoDesejado {
-            caminho: user,
-            conteudo: "Tratamento: senhor\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-        }];
+        let desejados = vec![ArquivoDesejado::new(
+            user,
+            "Tratamento: senhor\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        )];
 
         let err = planejar(desejados, estado).expect_err("marcadores duplicados devem falhar");
         assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
@@ -1141,11 +1260,11 @@ mod tests {
         )
         .expect("grava prefixo sem quebra");
 
-        let desejados = vec![ArquivoDesejado {
-            caminho: user.clone(),
-            conteudo: "novo\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-        }];
+        let desejados = vec![ArquivoDesejado::new(
+            user.clone(),
+            "novo\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        )];
 
         let err = planejar(desejados.clone(), estado.clone())
             .expect_err("marcador de inicio com prefixo na mesma linha deixa fim órfão");
@@ -1218,11 +1337,11 @@ mod tests {
             format!("{fim}\ninvertido\n{inicio}\n"),
         ] {
             fs::write(&user, conteudo).expect("grava variação inválida");
-            let desejados = vec![ArquivoDesejado {
-                caminho: user.clone(),
-                conteudo: "ok\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-            }];
+            let desejados = vec![ArquivoDesejado::new(
+                user.clone(),
+                "ok\n".to_owned(),
+                EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+            )];
             let err = planejar(desejados, estado.clone()).expect_err("deve rejeitar variação");
             assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
         }
@@ -1256,11 +1375,11 @@ mod tests {
         fs::write(&soul, "# V1\n").expect("grava soul");
 
         let plano = planejar(
-            vec![ArquivoDesejado {
-                caminho: soul.clone(),
-                conteudo: "# V2\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            }],
+            vec![ArquivoDesejado::new(
+                soul.clone(),
+                "# V2\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            )],
             estado.clone(),
         )
         .expect("estado legado sem versao deve ser aceito");
@@ -1274,11 +1393,11 @@ mod tests {
 
         fs::write(&estado, "versao = 99\n").expect("grava versao futura");
         let err = planejar(
-            vec![ArquivoDesejado {
-                caminho: soul,
-                conteudo: "# V2\n".to_owned(),
-                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
-            }],
+            vec![ArquivoDesejado::new(
+                soul,
+                "# V2\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            )],
             estado,
         )
         .expect_err("versao futura deve falhar");
@@ -1302,11 +1421,11 @@ mod tests {
         )
         .expect("grava arquivo");
 
-        let desejados = vec![ArquivoDesejado {
-            caminho: user.clone(),
-            conteudo: "novo\n".to_owned(),
-            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
-        }];
+        let desejados = vec![ArquivoDesejado::new(
+            user.clone(),
+            "novo\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        )];
         let plano = planejar(desejados, estado).expect("nao deve confundir marcador inline");
         aplicar(&plano, false).expect("aplica");
 
@@ -1328,5 +1447,52 @@ mod tests {
         let diff = gerar_resumo_diff(&antes, &depois);
         assert!(diff.contains("- antiga 0"));
         assert!(diff.contains("+ nova 599"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn arquivo_executavel_aplica_e_verifica_permissao_unix() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = DirTemporario::novo("permissao-exec");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let script = dir.path().join("bin/rotina.sh");
+
+        let desejados = vec![
+            ArquivoDesejado::new(
+                script.clone(),
+                "#!/bin/sh\necho ok\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            )
+            .com_permissao(PermissaoDeArquivo::Executavel),
+        ];
+
+        let p1 = planejar(desejados.clone(), estado.clone()).expect("plano criacao");
+        aplicar(&p1, false).expect("aplica script");
+        let mode = fs::metadata(&script).expect("meta").permissions().mode();
+        assert_ne!(mode & 0o111, 0, "script criado deve ter bit +x");
+        assert!(
+            verificar(&desejados, &estado)
+                .expect("verifica")
+                .sincronizado
+        );
+
+        let mut perms = fs::metadata(&script).expect("meta").permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&script, perms).expect("remove +x");
+
+        let verif_sem_x = verificar(&desejados, &estado).expect("verifica sem +x");
+        assert!(!verif_sem_x.sincronizado);
+        assert!(verif_sem_x.itens[0].detalhe.contains("permissão"));
+
+        let p2 = planejar(desejados.clone(), estado.clone()).expect("plano ajuste +x");
+        assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
+        let res = aplicar(&p2, false).expect("reaplica +x");
+        assert_eq!(res.atualizados, 1);
+        assert!(
+            verificar(&desejados, &estado)
+                .expect("verifica final")
+                .sincronizado
+        );
     }
 }

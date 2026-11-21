@@ -13,6 +13,6 @@ pub use definicao::{
 };
 pub use plano::{
     AcaoPlanejada, ArquivoDesejado, ErroDePlano, EstrategiaDeEscrita, ItemDeVerificacao,
-    OperacaoPlanejada, PlanoDeSetup, ResultadoDaAplicacao, ResultadoDaVerificacao, aplicar,
-    planejar, verificar,
+    OperacaoPlanejada, PermissaoDeArquivo, PlanoDeSetup, ResultadoDaAplicacao,
+    ResultadoDaVerificacao, aplicar, planejar, verificar,
 };

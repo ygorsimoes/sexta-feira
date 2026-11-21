@@ -52,16 +52,28 @@ struct OpcoesAlvo {
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_env("SEXTA_FEIRA_LOG").unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_env("SEXTA_FEIRA_LOG").unwrap_or_else(|_| EnvFilter::new("warn")),
         )
         .with_writer(std::io::stderr)
         .init();
 
     match Cli::parse().comando {
-        Comando::Harnesses => listar_harnesses()?,
-        Comando::Plano(alvo) => executar_plano(&alvo)?,
-        Comando::Aplicar { alvo, forcar } => executar_aplicar(&alvo, forcar)?,
-        Comando::Verificar(alvo) => executar_verificar(&alvo)?,
+        Comando::Harnesses => {
+            tracing::debug!("executando subcomando harnesses");
+            listar_harnesses()?;
+        }
+        Comando::Plano(alvo) => {
+            tracing::debug!(harness = %alvo.harness, "executando subcomando plano");
+            executar_plano(&alvo)?;
+        }
+        Comando::Aplicar { alvo, forcar } => {
+            tracing::debug!(harness = %alvo.harness, forcar, "executando subcomando aplicar");
+            executar_aplicar(&alvo, forcar)?;
+        }
+        Comando::Verificar(alvo) => {
+            tracing::debug!(harness = %alvo.harness, "executando subcomando verificar");
+            executar_verificar(&alvo)?;
+        }
     }
     Ok(())
 }

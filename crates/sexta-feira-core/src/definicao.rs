@@ -149,6 +149,12 @@ impl DefinicaoDoMordomo {
     /// Retorna erro se um arquivo explícito não existir, se houver erro de sintaxe ou
     /// chave desconhecida, ou se algum campo obrigatório falhar na validação.
     pub fn carregar(fontes: &FontesDaDefinicao) -> Result<Self, ErroDeDefinicao> {
+        tracing::debug!(
+            diretorio_config = ?fontes.diretorio_config,
+            persona_explicita = ?fontes.persona_explicita,
+            usuario_explicito = ?fontes.usuario_explicito,
+            "carregando definição do mordomo em camadas"
+        );
         let dir_persona = fontes
             .diretorio_config
             .as_deref()

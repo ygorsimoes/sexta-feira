@@ -12,6 +12,7 @@ publish.workspace = true
 serde.workspace = true
 sexta-feira-core.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

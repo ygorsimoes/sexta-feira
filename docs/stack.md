@@ -10,7 +10,7 @@ Bibliotecas e ferramentas confirmadas para o projeto. Uma biblioteca só entra n
 | Serialização | `serde`, `serde_json`, `toml` | em uso |
 | Configuração | `figment` | em uso |
 | Erros | `thiserror` nas bibliotecas, `anyhow` nos binários | em uso |
-| Logs | `tracing`, `tracing-subscriber` | `tracing-subscriber` em uso; `tracing` prevista |
+| Logs | `tracing`, `tracing-subscriber` | em uso |
 
 ## Ferramentas
 

@@ -96,6 +96,11 @@ impl ConfiguracaoHermes {
         };
 
         let nome_perfil = validar_perfil(perfil.unwrap_or(PERFIL_PADRAO))?;
+        tracing::debug!(
+            hermes_home = %hermes_home.display(),
+            perfil = %nome_perfil,
+            "configuração do Hermes resolvida"
+        );
         Ok(Self {
             hermes_home,
             perfil: nome_perfil,
@@ -145,6 +150,10 @@ impl AdaptadorDeSetup for AdaptadorHermes {
         definicao: &DefinicaoDoMordomo,
     ) -> Result<Vec<ArquivoDesejado>, ErroDeAdaptador> {
         let perfil_dir = self.config.diretorio_do_perfil();
+        tracing::debug!(
+            perfil_dir = %perfil_dir.display(),
+            "gerando artefatos declarativos para o Hermes"
+        );
         let soul = renderizar_soul(definicao)?;
         let user = renderizar_user(definicao);
 

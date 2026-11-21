@@ -18,6 +18,7 @@ sexta-feira-core.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]

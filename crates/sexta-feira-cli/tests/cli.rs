@@ -179,3 +179,24 @@ fn harness_nao_implementado_retorna_erro_claro() {
     assert!(stderr.contains("openclaw"));
     assert!(stderr.contains("ainda não implementado"));
 }
+
+#[test]
+fn logs_tracing_respeitam_sexta_feira_log_e_nao_sujam_stderr_por_padrao() {
+    let padrao = Command::cargo_bin("sexta-feira")
+        .expect("binario")
+        .env_remove("SEXTA_FEIRA_LOG")
+        .arg("harnesses")
+        .assert()
+        .success();
+    let stderr_padrao = String::from_utf8(padrao.get_output().stderr.clone()).expect("UTF-8");
+    assert_eq!(stderr_padrao.trim(), "");
+
+    let debug = Command::cargo_bin("sexta-feira")
+        .expect("binario")
+        .env("SEXTA_FEIRA_LOG", "debug")
+        .arg("harnesses")
+        .assert()
+        .success();
+    let stderr_debug = String::from_utf8(debug.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_debug.contains("DEBUG"));
+}

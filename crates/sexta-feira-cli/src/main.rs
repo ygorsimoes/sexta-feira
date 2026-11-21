@@ -113,6 +113,7 @@ fn executar_plano(alvo: &OpcoesAlvo) -> anyhow::Result<()> {
                 sem_alteracoes += 1;
                 "OK"
             }
+            OperacaoPlanejada::Remover => "REMOVER",
             OperacaoPlanejada::Conflito { .. } => {
                 conflitos += 1;
                 "CONFLITO"

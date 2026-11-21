@@ -1,6 +1,6 @@
 //! Planejamento, verificação e aplicação declarativa de arquivos de setup.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
@@ -76,6 +76,8 @@ pub enum OperacaoPlanejada {
     Atualizar,
     /// O arquivo já está idêntico ao estado desejado.
     SemAlteracoes,
+    /// O arquivo anteriormente gerenciado tornou-se obsoleto e será removido.
+    Remover,
     /// O arquivo integral divergiu fora do controle do setup e exige `--forcar`.
     Conflito {
         /// Explicação legível da divergência detectada.
@@ -98,6 +100,7 @@ pub struct AcaoPlanejada {
     pub permissao: PermissaoDeArquivo,
     /// Resumo textual legível das mudanças previstas, quando houver.
     pub resumo_diff: Option<String>,
+    remocao: bool,
 }
 
 /// Plano completo de sincronização calculado antes de qualquer escrita.
@@ -229,11 +232,13 @@ pub fn planejar(
     let estado = carregar_estado(&arquivo_estado)?;
     let raiz_estado = arquivo_estado.parent();
     let mut acoes = Vec::with_capacity(arquivos.len());
+    let mut chaves_integrais_desejadas = BTreeSet::new();
 
     for arquivo in arquivos {
         let atual = ler_opcional(&arquivo.caminho)?;
         let acao = match arquivo.estrategia {
             EstrategiaDeEscrita::ArquivoIntegral => {
+                chaves_integrais_desejadas.insert(chave_estado(&arquivo.caminho, raiz_estado));
                 planejar_integral(&arquivo, atual.as_deref(), &estado, raiz_estado)?
             }
             EstrategiaDeEscrita::BlocoDelimitado { inicio, fim } => {
@@ -241,6 +246,34 @@ pub fn planejar(
             }
         };
         acoes.push(acao);
+    }
+
+    for (chave, checksum_registrado) in &estado.arquivos_integrais {
+        if chaves_integrais_desejadas.contains(chave) {
+            continue;
+        }
+        let caminho = resolver_caminho_estado(chave, raiz_estado);
+        let Some(conteudo_atual) = ler_opcional(&caminho)? else {
+            continue;
+        };
+        let atual_normalizado = normalizar_quebras(&conteudo_atual);
+        let operacao = if checksum_conteudo(&atual_normalizado) == *checksum_registrado {
+            OperacaoPlanejada::Remover
+        } else {
+            OperacaoPlanejada::Conflito {
+                motivo: "o arquivo obsoleto foi modificado manualmente desde a última aplicação"
+                    .to_owned(),
+            }
+        };
+        acoes.push(AcaoPlanejada {
+            caminho,
+            operacao,
+            conteudo_final: String::new(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            permissao: PermissaoDeArquivo::Padrao,
+            resumo_diff: Some(gerar_resumo_diff(&atual_normalizado, "")),
+            remocao: true,
+        });
     }
 
     Ok(PlanoDeSetup {
@@ -268,6 +301,7 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
     let mut atualizados = 0;
     let mut backups_criados = Vec::new();
     let mut alterou_estado = false;
+    let mut chaves_integrais_ativas = BTreeSet::new();
 
     for acao in &plano.acoes {
         let resultado_acao =
@@ -281,12 +315,27 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
 
         if acao.estrategia == EstrategiaDeEscrita::ArquivoIntegral {
             let chave = chave_estado(&acao.caminho, raiz_estado);
-            let checksum = checksum_conteudo(&acao.conteudo_final);
-            if estado.arquivos_integrais.get(&chave) != Some(&checksum) {
-                estado.arquivos_integrais.insert(chave, checksum);
-                alterou_estado = true;
+            if acao.remocao {
+                if estado.arquivos_integrais.remove(&chave).is_some() {
+                    alterou_estado = true;
+                }
+            } else {
+                chaves_integrais_ativas.insert(chave.clone());
+                let checksum = checksum_conteudo(&acao.conteudo_final);
+                if estado.arquivos_integrais.get(&chave) != Some(&checksum) {
+                    estado.arquivos_integrais.insert(chave, checksum);
+                    alterou_estado = true;
+                }
             }
         }
+    }
+
+    let antes_poda = estado.arquivos_integrais.len();
+    estado
+        .arquivos_integrais
+        .retain(|chave, _| chaves_integrais_ativas.contains(chave));
+    if estado.arquivos_integrais.len() != antes_poda {
+        alterou_estado = true;
     }
 
     if alterou_estado {
@@ -322,6 +371,7 @@ fn aplicar_acao(
             *atualizados += 1;
             Ok(())
         }
+        OperacaoPlanejada::Remover => remover_arquivo_se_existir(&acao.caminho),
         OperacaoPlanejada::Conflito { .. } => {
             if acao.caminho.exists() {
                 let backup = caminho_backup(&acao.caminho);
@@ -331,11 +381,25 @@ fn aplicar_acao(
                 })?;
                 backups_criados.push(backup);
             }
+            if acao.remocao {
+                return remover_arquivo_se_existir(&acao.caminho);
+            }
             gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
             garantir_permissao(&acao.caminho, acao.permissao)?;
             *atualizados += 1;
             Ok(())
         }
+    }
+}
+
+fn remover_arquivo_se_existir(caminho: &Path) -> Result<(), ErroDePlano> {
+    match fs::remove_file(caminho) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(fonte) => Err(ErroDePlano::Io {
+            caminho: caminho.to_path_buf(),
+            fonte,
+        }),
     }
 }
 
@@ -362,6 +426,9 @@ pub fn verificar(
                 (false, "permissão executável ausente".to_owned())
             }
             OperacaoPlanejada::Atualizar => (false, "atualização pendente".to_owned()),
+            OperacaoPlanejada::Remover => {
+                (false, "arquivo obsoleto pendente de remoção".to_owned())
+            }
             OperacaoPlanejada::Conflito { motivo } => (false, format!("conflito: {motivo}")),
         };
         if !item_ok {
@@ -396,6 +463,7 @@ fn planejar_integral(
             estrategia: arquivo.estrategia,
             permissao: arquivo.permissao,
             resumo_diff,
+            remocao: false,
         });
     };
 
@@ -409,6 +477,7 @@ fn planejar_integral(
                 estrategia: arquivo.estrategia,
                 permissao: arquivo.permissao,
                 resumo_diff: Some(DIFF_PERMISSAO_EXECUTAVEL.to_owned()),
+                remocao: false,
             });
         }
         return Ok(AcaoPlanejada {
@@ -418,6 +487,7 @@ fn planejar_integral(
             estrategia: arquivo.estrategia,
             permissao: arquivo.permissao,
             resumo_diff: None,
+            remocao: false,
         });
     }
 
@@ -441,6 +511,7 @@ fn planejar_integral(
         estrategia: arquivo.estrategia,
         permissao: arquivo.permissao,
         resumo_diff,
+        remocao: false,
     })
 }
 
@@ -487,7 +558,19 @@ fn planejar_bloco_delimitado(
         estrategia: arquivo.estrategia,
         permissao: arquivo.permissao,
         resumo_diff,
+        remocao: false,
     })
+}
+
+fn resolver_caminho_estado(chave: &str, raiz_estado: Option<&Path>) -> PathBuf {
+    let caminho = Path::new(chave);
+    if caminho.is_relative()
+        && let Some(raiz) = raiz_estado
+        && !raiz.as_os_str().is_empty()
+    {
+        return raiz.join(caminho);
+    }
+    caminho.to_path_buf()
 }
 
 #[cfg(unix)]
@@ -1491,6 +1574,93 @@ mod tests {
         assert_eq!(res.atualizados, 1);
         assert!(
             verificar(&desejados, &estado)
+                .expect("verifica final")
+                .sincronizado
+        );
+    }
+
+    #[test]
+    fn poda_arquivo_integral_orfao_com_seguranca_e_respeita_conflito() {
+        let dir = DirTemporario::novo("poda-orfao");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let a = dir.path().join("A.md");
+        let b = dir.path().join("B.md");
+
+        let v1 = vec![
+            ArquivoDesejado::new(
+                a.clone(),
+                "# A\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+            ArquivoDesejado::new(
+                b.clone(),
+                "# B\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+        ];
+        let p1 = planejar(v1, estado.clone()).expect("plano inicial");
+        aplicar(&p1, false).expect("aplica inicial");
+
+        let v2 = vec![ArquivoDesejado::new(
+            a.clone(),
+            "# A\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
+        let p_rem = planejar(v2.clone(), estado.clone()).expect("plano remocao");
+        assert!(
+            p_rem
+                .acoes
+                .iter()
+                .any(|ac| ac.caminho == b && matches!(ac.operacao, OperacaoPlanejada::Remover))
+        );
+        assert!(
+            !verificar(&v2, &estado)
+                .expect("verifica antes")
+                .sincronizado
+        );
+
+        aplicar(&p_rem, false).expect("aplica remocao");
+        assert!(!b.exists(), "arquivo orfao deve ser removido");
+        assert!(
+            verificar(&v2, &estado)
+                .expect("verifica depois")
+                .sincronizado
+        );
+
+        // Agora testa conflito quando orfao foi editado manualmente antes da poda
+        let v3 = vec![
+            ArquivoDesejado::new(
+                a.clone(),
+                "# A\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+            ArquivoDesejado::new(
+                b.clone(),
+                "# B\n".to_owned(),
+                EstrategiaDeEscrita::ArquivoIntegral,
+            ),
+        ];
+        aplicar(&planejar(v3, estado.clone()).expect("recria B"), false).expect("aplica B");
+        fs::write(&b, "# B editado manualmente\n").expect("edita B");
+
+        let p_conflito = planejar(v2.clone(), estado.clone()).expect("plano conflito orfao");
+        assert!(p_conflito.acoes.iter().any(|ac| {
+            ac.caminho == b && matches!(ac.operacao, OperacaoPlanejada::Conflito { .. })
+        }));
+        assert!(matches!(
+            aplicar(&p_conflito, false),
+            Err(ErroDePlano::ConflitoPendente { .. })
+        ));
+        assert!(b.exists(), "sem --forcar nao pode apagar arquivo editado");
+
+        let res_forcar = aplicar(&p_conflito, true).expect("forcar remocao com backup");
+        assert!(!b.exists());
+        assert_eq!(
+            res_forcar.backups_criados,
+            vec![dir.path().join("B.md.bak")]
+        );
+        assert!(
+            verificar(&v2, &estado)
                 .expect("verifica final")
                 .sincronizado
         );

@@ -10,6 +10,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+use crate::estruturado;
+
+/// Formato de arquivo estruturado suportado pela estratégia de mesclagem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatoEstruturado {
+    /// Documento JSON com raiz objeto.
+    Json,
+    /// Documento TOML com raiz tabela.
+    Toml,
+}
+
 /// Permissão aplicada ao arquivo no sistema de arquivos de destino.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PermissaoDeArquivo {
@@ -31,6 +42,11 @@ pub enum EstrategiaDeEscrita {
         inicio: &'static str,
         /// Marcador de fim do bloco gerenciado.
         fim: &'static str,
+    },
+    /// A Sexta-feira mescla apenas as chaves gerenciadas mantendo as do usuário.
+    MesclagemEstruturada {
+        /// Formato do documento estruturado.
+        formato: FormatoEstruturado,
     },
 }
 
@@ -101,6 +117,7 @@ pub struct AcaoPlanejada {
     /// Resumo textual legível das mudanças previstas, quando houver.
     pub resumo_diff: Option<String>,
     remocao: bool,
+    checksum_estruturado: Option<String>,
 }
 
 /// Plano completo de sincronização calculado antes de qualquer escrita.
@@ -193,6 +210,14 @@ pub enum ErroDePlano {
         /// Motivo do conflito detectado.
         motivo: String,
     },
+    /// Conteúdo desejado inválido para mesclagem estruturada.
+    #[error("conteúdo estruturado inválido para `{caminho}`: {detalhe}")]
+    ConteudoEstruturadoInvalido {
+        /// Caminho do arquivo alvo.
+        caminho: PathBuf,
+        /// Descrição do erro de sintaxe ou estrutura.
+        detalhe: String,
+    },
 }
 
 const VERSAO_ESTADO_ATUAL: u32 = 1;
@@ -209,6 +234,8 @@ struct EstadoAplicado {
     versao: u32,
     #[serde(default)]
     arquivos_integrais: BTreeMap<String, String>,
+    #[serde(default)]
+    arquivos_estruturados: BTreeMap<String, String>,
 }
 
 impl Default for EstadoAplicado {
@@ -216,6 +243,7 @@ impl Default for EstadoAplicado {
         Self {
             versao: VERSAO_ESTADO_ATUAL,
             arquivos_integrais: BTreeMap::new(),
+            arquivos_estruturados: BTreeMap::new(),
         }
     }
 }
@@ -243,6 +271,9 @@ pub fn planejar(
             }
             EstrategiaDeEscrita::BlocoDelimitado { inicio, fim } => {
                 planejar_bloco_delimitado(&arquivo, atual.as_deref(), inicio, fim)?
+            }
+            EstrategiaDeEscrita::MesclagemEstruturada { formato } => {
+                planejar_estruturado(&arquivo, atual.as_deref(), formato, &estado, raiz_estado)?
             }
         };
         acoes.push(acao);
@@ -273,6 +304,7 @@ pub fn planejar(
             permissao: PermissaoDeArquivo::Padrao,
             resumo_diff: Some(gerar_resumo_diff(&atual_normalizado, "")),
             remocao: true,
+            checksum_estruturado: None,
         });
     }
 
@@ -302,6 +334,7 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
     let mut backups_criados = Vec::new();
     let mut alterou_estado = false;
     let mut chaves_integrais_ativas = BTreeSet::new();
+    let mut chaves_estruturadas_ativas = BTreeSet::new();
 
     for acao in &plano.acoes {
         let resultado_acao =
@@ -313,28 +346,48 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
             return Err(erro);
         }
 
-        if acao.estrategia == EstrategiaDeEscrita::ArquivoIntegral {
-            let chave = chave_estado(&acao.caminho, raiz_estado);
-            if acao.remocao {
-                if estado.arquivos_integrais.remove(&chave).is_some() {
-                    alterou_estado = true;
+        let chave = chave_estado(&acao.caminho, raiz_estado);
+        match acao.estrategia {
+            EstrategiaDeEscrita::ArquivoIntegral => {
+                if acao.remocao {
+                    if estado.arquivos_integrais.remove(&chave).is_some() {
+                        alterou_estado = true;
+                    }
+                } else {
+                    chaves_integrais_ativas.insert(chave.clone());
+                    let checksum = checksum_conteudo(&acao.conteudo_final);
+                    if estado.arquivos_integrais.get(&chave) != Some(&checksum) {
+                        estado.arquivos_integrais.insert(chave, checksum);
+                        alterou_estado = true;
+                    }
                 }
-            } else {
-                chaves_integrais_ativas.insert(chave.clone());
-                let checksum = checksum_conteudo(&acao.conteudo_final);
-                if estado.arquivos_integrais.get(&chave) != Some(&checksum) {
-                    estado.arquivos_integrais.insert(chave, checksum);
+            }
+            EstrategiaDeEscrita::MesclagemEstruturada { .. } => {
+                chaves_estruturadas_ativas.insert(chave.clone());
+                if let Some(checksum) = &acao.checksum_estruturado
+                    && estado.arquivos_estruturados.get(&chave) != Some(checksum)
+                {
+                    estado.arquivos_estruturados.insert(chave, checksum.clone());
                     alterou_estado = true;
                 }
             }
+            EstrategiaDeEscrita::BlocoDelimitado { .. } => {}
         }
     }
 
-    let antes_poda = estado.arquivos_integrais.len();
+    let antes_poda_integrais = estado.arquivos_integrais.len();
     estado
         .arquivos_integrais
         .retain(|chave, _| chaves_integrais_ativas.contains(chave));
-    if estado.arquivos_integrais.len() != antes_poda {
+    if estado.arquivos_integrais.len() != antes_poda_integrais {
+        alterou_estado = true;
+    }
+
+    let antes_poda_estruturados = estado.arquivos_estruturados.len();
+    estado
+        .arquivos_estruturados
+        .retain(|chave, _| chaves_estruturadas_ativas.contains(chave));
+    if estado.arquivos_estruturados.len() != antes_poda_estruturados {
         alterou_estado = true;
     }
 
@@ -464,6 +517,7 @@ fn planejar_integral(
             permissao: arquivo.permissao,
             resumo_diff,
             remocao: false,
+            checksum_estruturado: None,
         });
     };
 
@@ -478,6 +532,7 @@ fn planejar_integral(
                 permissao: arquivo.permissao,
                 resumo_diff: Some(DIFF_PERMISSAO_EXECUTAVEL.to_owned()),
                 remocao: false,
+                checksum_estruturado: None,
             });
         }
         return Ok(AcaoPlanejada {
@@ -488,6 +543,7 @@ fn planejar_integral(
             permissao: arquivo.permissao,
             resumo_diff: None,
             remocao: false,
+            checksum_estruturado: None,
         });
     }
 
@@ -512,6 +568,7 @@ fn planejar_integral(
         permissao: arquivo.permissao,
         resumo_diff,
         remocao: false,
+        checksum_estruturado: None,
     })
 }
 
@@ -559,6 +616,57 @@ fn planejar_bloco_delimitado(
         permissao: arquivo.permissao,
         resumo_diff,
         remocao: false,
+        checksum_estruturado: None,
+    })
+}
+
+fn planejar_estruturado(
+    arquivo: &ArquivoDesejado,
+    atual: Option<&str>,
+    formato: FormatoEstruturado,
+    estado: &EstadoAplicado,
+    raiz_estado: Option<&Path>,
+) -> Result<AcaoPlanejada, ErroDePlano> {
+    let chave = chave_estado(&arquivo.caminho, raiz_estado);
+    let checksum_registrado = estado.arquivos_estruturados.get(&chave).map(String::as_str);
+    let res = estruturado::planejar_documento(
+        formato,
+        &arquivo.caminho,
+        &arquivo.conteudo,
+        atual,
+        checksum_registrado,
+    )?;
+
+    let (operacao, resumo_diff) = match res.operacao {
+        OperacaoPlanejada::SemAlteracoes => {
+            if permissao_pendente(&arquivo.caminho, arquivo.permissao)? {
+                (
+                    OperacaoPlanejada::Atualizar,
+                    Some(DIFF_PERMISSAO_EXECUTAVEL.to_owned()),
+                )
+            } else {
+                (OperacaoPlanejada::SemAlteracoes, None)
+            }
+        }
+        OperacaoPlanejada::Criar => (
+            OperacaoPlanejada::Criar,
+            Some(gerar_resumo_diff("", &res.conteudo_final)),
+        ),
+        outro => {
+            let antes = res.texto_anterior.as_deref().unwrap_or("");
+            (outro, Some(gerar_resumo_diff(antes, &res.conteudo_final)))
+        }
+    };
+
+    Ok(AcaoPlanejada {
+        caminho: arquivo.caminho.clone(),
+        operacao,
+        conteudo_final: res.conteudo_final,
+        estrategia: arquivo.estrategia,
+        permissao: arquivo.permissao,
+        resumo_diff,
+        remocao: false,
+        checksum_estruturado: Some(res.checksum_patch),
     })
 }
 
@@ -872,7 +980,7 @@ fn normalizar_quebras(texto: &str) -> String {
     texto.replace("\r\n", "\n")
 }
 
-fn checksum_conteudo(conteudo: &str) -> String {
+pub(crate) fn checksum_conteudo(conteudo: &str) -> String {
     const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0100_0000_01b3;
 
@@ -1664,5 +1772,149 @@ mod tests {
                 .expect("verifica final")
                 .sincronizado
         );
+    }
+
+    #[test]
+    fn mesclagem_estruturada_json_preserva_chaves_usuario_e_detecta_conflito_em_chaves_gerenciadas()
+    {
+        let dir = DirTemporario::novo("merge-json");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let cfg = dir.path().join("settings.json");
+
+        fs::write(
+            &cfg,
+            "{\n    \"tema\": \"escuro\",\n    \"mcpServers\": {\n        \"outro\": { \"cmd\": \"x\" }\n    }\n}\n",
+        )
+        .expect("grava json previo");
+
+        let desejados_v1 = vec![ArquivoDesejado::new(
+            cfg.clone(),
+            r#"{"mcpServers":{"sexta-feira":{"command":"sexta-feira"}}}"#.to_owned(),
+            EstrategiaDeEscrita::MesclagemEstruturada {
+                formato: FormatoEstruturado::Json,
+            },
+        )];
+
+        let p1 = planejar(desejados_v1.clone(), estado.clone()).expect("plano v1");
+        assert!(matches!(p1.acoes[0].operacao, OperacaoPlanejada::Atualizar));
+        aplicar(&p1, false).expect("aplica v1");
+
+        let lido: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).expect("le cfg")).expect("json valido");
+        assert_eq!(lido["tema"], "escuro");
+        assert_eq!(lido["mcpServers"]["outro"]["cmd"], "x");
+        assert_eq!(lido["mcpServers"]["sexta-feira"]["command"], "sexta-feira");
+        assert!(
+            verificar(&desejados_v1, &estado)
+                .expect("verifica")
+                .sincronizado
+        );
+
+        // Usuário altera chave própria mantendo formatação customizada: deve continuar SemAlteracoes
+        let custom = fs::read_to_string(&cfg)
+            .expect("le")
+            .replace("\"escuro\"", "\"claro\"");
+        fs::write(&cfg, custom).expect("altera chave do usuario");
+        let p_user =
+            planejar(desejados_v1.clone(), estado.clone()).expect("plano apos chave propria");
+        assert!(matches!(
+            p_user.acoes[0].operacao,
+            OperacaoPlanejada::SemAlteracoes
+        ));
+
+        // Usuário altera chave gerenciada: deve gerar Conflito e exigir --forcar
+        let adulterado = fs::read_to_string(&cfg)
+            .expect("le")
+            .replace("\"command\": \"sexta-feira\"", "\"command\": \"manual\"");
+        fs::write(&cfg, adulterado).expect("adultera chave gerenciada");
+        let p_conflito = planejar(desejados_v1, estado.clone()).expect("plano conflito");
+        assert!(matches!(
+            p_conflito.acoes[0].operacao,
+            OperacaoPlanejada::Conflito { .. }
+        ));
+        assert!(matches!(
+            aplicar(&p_conflito, false),
+            Err(ErroDePlano::ConflitoPendente { .. })
+        ));
+
+        let res_forcar = aplicar(&p_conflito, true).expect("forcar merge");
+        assert_eq!(res_forcar.backups_criados.len(), 1);
+        let final_json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&cfg).expect("le final"))
+                .expect("json valido");
+        assert_eq!(final_json["tema"], "claro");
+        assert_eq!(
+            final_json["mcpServers"]["sexta-feira"]["command"],
+            "sexta-feira"
+        );
+    }
+
+    #[test]
+    fn mesclagem_estruturada_rejeita_colisao_preexistente_sem_estado_e_suporta_toml() {
+        let dir = DirTemporario::novo("merge-toml");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let cfg = dir.path().join("config.toml");
+
+        fs::write(
+            &cfg,
+            "[usuario]\ntratamento = \"manual\"\n[extra]\nmanter = true\n",
+        )
+        .expect("toml previo");
+        let desejados = vec![ArquivoDesejado::new(
+            cfg.clone(),
+            "[usuario]\ntratamento = \"senhor\"\n".to_owned(),
+            EstrategiaDeEscrita::MesclagemEstruturada {
+                formato: FormatoEstruturado::Toml,
+            },
+        )];
+
+        let p_colisao = planejar(desejados.clone(), estado.clone()).expect("plano colisao");
+        assert!(matches!(
+            p_colisao.acoes[0].operacao,
+            OperacaoPlanejada::Conflito { .. }
+        ));
+        aplicar(&p_colisao, true).expect("forca sobre colisao");
+
+        let conteudo = fs::read_to_string(&cfg).expect("le toml");
+        assert!(conteudo.contains("manter = true"));
+        assert!(conteudo.contains("tratamento = \"senhor\""));
+        assert!(
+            verificar(&desejados, &estado)
+                .expect("verifica")
+                .sincronizado
+        );
+
+        // JSON preexistente com colisão e JSON inválido em disco também devem gerar Conflito
+        let json_cfg = dir.path().join("colisao.json");
+        fs::write(
+            &json_cfg,
+            r#"{"tema":"escuro","mcpServers":{"sexta":"antigo"}}"#,
+        )
+        .expect("json previo");
+        let json_desejado = vec![ArquivoDesejado::new(
+            json_cfg.clone(),
+            r#"{"mcpServers":{"sexta":"novo"}}"#.to_owned(),
+            EstrategiaDeEscrita::MesclagemEstruturada {
+                formato: FormatoEstruturado::Json,
+            },
+        )];
+        let p_json_col =
+            planejar(json_desejado.clone(), estado.clone()).expect("plano colisao json");
+        assert!(matches!(
+            p_json_col.acoes[0].operacao,
+            OperacaoPlanejada::Conflito { .. }
+        ));
+        aplicar(&p_json_col, true).expect("forca sobre colisao json");
+        let json_final: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&json_cfg).expect("le json")).expect("valido");
+        assert_eq!(json_final["tema"], "escuro");
+        assert_eq!(json_final["mcpServers"]["sexta"], "novo");
+
+        fs::write(&json_cfg, "{ quebrado").expect("json corrompido");
+        let p_quebrado = planejar(json_desejado, estado).expect("plano json corrompido");
+        assert!(matches!(
+            p_quebrado.acoes[0].operacao,
+            OperacaoPlanejada::Conflito { .. }
+        ));
     }
 }

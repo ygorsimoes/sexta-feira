@@ -1,4 +1,4 @@
-//! Harnesses que a Sexta-feira prevê suportar.
+//! Catálogo dos harnesses suportados ou previstos pela Sexta-feira.
 
 use std::fmt;
 use std::str::FromStr;

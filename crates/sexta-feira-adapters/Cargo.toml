@@ -1,6 +1,6 @@
 [package]
 name = "sexta-feira-adapters"
-description = "Adapters que traduzem o motor da Sexta-feira para cada harness."
+description = "Adapters que traduzem o setup da Sexta-feira para cada harness."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,9 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde.workspace = true
 sexta-feira-core.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

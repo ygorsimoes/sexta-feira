@@ -53,7 +53,7 @@ O denominador comum entre os harnesses é **MCP + skills no formato SKILL.md**. 
 |---|---|---|---|---|---|
 | MCP | sim | sim | sim | sim (remoto) | sim |
 | Skills (SKILL.md) | sim | sim | sim | sim | a confirmar |
-| Persona/contexto | config própria | `SOUL.md` / `AGENTS.md` | `CLAUDE.md` | instruções de projeto | `AGENTS.md` |
+| Persona/contexto | `SOUL.md` / `memories/USER.md` | `SOUL.md` / `AGENTS.md` | `CLAUDE.md` | instruções de projeto | `AGENTS.md` |
 | Agendamento nativo | sim | sim | limitado | não | não |
 | Canais de mensagem | sim | sim | não | não | não |
 
@@ -62,17 +62,19 @@ O denominador comum entre os harnesses é **MCP + skills no formato SKILL.md**. 
 ```text
 sexta-feira/
 ├── crates/
-│   ├── sexta-feira-core/      # modelo e contratos agnósticos de harness
-│   ├── sexta-feira-adapters/  # tradução e aplicação do setup para cada harness
+│   ├── sexta-feira-core/      # modelo agnóstico e motor declarativo de setup
+│   ├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
 │   └── sexta-feira-cli/       # binário `sexta-feira`
-├── docs/                      # visão, arquitetura e stack
+├── recursos/
+│   └── mordomo/               # fonte única da persona e do perfil do usuário
+├── docs/                      # visão, arquitetura, stack e especificações
 └── spikes/                    # experimentos descartáveis, fora do workspace
 ```
 
-Ainda a criar, conforme o desenvolvimento avançar:
+Ainda a criar, conforme os próximos incrementos avançarem:
 
-- Fonte única da persona, regras de conduta, skills (`SKILL.md`) e scripts utilitários.
-- Modelos de configuração e instalação específicos de cada harness (começando pelo Hermes).
+- Skills (`SKILL.md`), scripts utilitários e presets de `config.yaml` em `recursos/`.
+- Demais adapters por harness.
 
 As bibliotecas e ferramentas estão em [stack.md](stack.md).
 
@@ -80,15 +82,13 @@ As bibliotecas e ferramentas estão em [stack.md](stack.md).
 
 O primeiro recorte prova o setup automatizado e idempotente em um único harness, o **Hermes Agent**:
 
-1. Fonte única da **persona e das regras de conduta** da Sexta-feira em `pt-BR` (tom J.A.R.V.I.S.).
-2. Adapter do Hermes capaz de instalar e validar essa configuração no ambiente do Hermes sem passos manuais repetitivos.
-3. Comando na CLI `sexta-feira` para aplicar e verificar o setup do Hermes na VPS.
+1. **Concluído no Recorte 1**: fonte única da **persona e das regras de conduta** da Sexta-feira em `pt-BR` (tom J.A.R.V.I.S., tratamento como `"senhor"`), embutida em `recursos/mordomo/`.
+2. **Concluído no Recorte 1**: adapter do Hermes (`$HERMES_HOME/profiles/sexta-feira/`) gerando `SOUL.md` integral (com detecção de conflitos por `.sexta-feira-estado.toml`) e `memories/USER.md` por bloco delimitado.
+3. **Concluído no Recorte 1**: subcomandos `plano`, `aplicar` e `verificar` na CLI `sexta-feira`.
 
-Outros blocos (memória persistente, canais como Telegram, scripts de apoio, integrações e rotinas agendadas no próprio harness) serão incorporados ao pacote de setup em incrementos seguintes, conforme forem detalhados e validados. Os demais adapters entram depois do MVP, na ordem a definir.
+Outros blocos (memória persistente, canais como Telegram, scripts de apoio, integrações, `config.yaml` e rotinas agendadas no próprio harness) serão incorporados ao pacote de setup em incrementos seguintes, conforme forem detalhados e validados. Os demais adapters entram depois do MVP, na ordem a definir.
 
 ## 7. Questões em aberto
 
-- Validar a tabela da seção 4 na documentação atual do Hermes (onde ficam persona/system prompt, skills, MCP, cron e `config.yaml`).
-- Definir o formato da fonte única da persona e das regras de conduta e se esses ativos serão embutidos no binário `sexta-feira`.
-- Definir como o setup garante idempotência sem sobrescrever ajustes locais feitos manualmente pelo usuário no harness.
-- Avaliar quais blocos entram na sequência do MVP (por exemplo, memória com `ai-memory` — ainda pendente dos testes descritos em [spikes/ai-memory-hermes](../spikes/ai-memory-hermes/README.md) —, Telegram, integrações e rotinas).
+- Validar na documentação dos demais harnesses (`OpenClaw`, `Claude Code`, `Claude Desktop/.ai`, `OpenCode`) os formatos exatos de instalação antes de implementar cada adapter.
+- Avaliar quais blocos entram na sequência do MVP no Hermes (por exemplo: `config.yaml`, memória com `ai-memory` — ainda pendente dos testes descritos em [spikes/ai-memory-hermes](../spikes/ai-memory-hermes/README.md) —, Telegram, integrações e rotinas).

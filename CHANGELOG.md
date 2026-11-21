@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/ygorsimoes/sexta-feira/compare/v0.1.0...v0.1.1) (2026-11-21)
+
+
+### ✨ Funcionalidades
+
+* **cli:** adiciona skill de instalação por agente, iniciar, diagnostico e --verbose ([#23](https://github.com/ygorsimoes/sexta-feira/issues/23)) ([a608c64](https://github.com/ygorsimoes/sexta-feira/commit/a608c645a51dcc3629c1ea7bc6562836ecce71bb))
+* **docker:** dockeriza CI, CLI e laboratorio local via justfile ([#25](https://github.com/ygorsimoes/sexta-feira/issues/25)) ([9c8a6c0](https://github.com/ygorsimoes/sexta-feira/commit/9c8a6c09183a1db34208090d431003e40f866452))
+
 ## 0.1.0 (2026-11-21)
 
 

@@ -1,57 +1,90 @@
-# Ambiente local em Docker com Hermes Agent
+# Ambiente Docker (CI, CLI e laboratório Hermes)
 
-Este laboratório permite subir um container limpo do **Hermes Agent** (`nousresearch/hermes-agent`) pré-configurado com **OpenRouter** para testar a Sexta-feira de ponta a ponta — tanto aplicando o setup diretamente via CLI quanto pedindo ao próprio agente Hermes para instalar a Sexta-feira seguindo [recursos/skills/instalar-sexta-feira/SKILL.md](../recursos/skills/instalar-sexta-feira/SKILL.md).
+Toda a infraestrutura Docker e de automação do projeto é operada diretamente da raiz pelo [justfile](../justfile), sem necessidade de entrar em subpastas ou instalar ferramentas Rust/CI na máquina local.
 
 ## Pré-requisitos
 
 - Docker Desktop ou Docker Engine com `docker compose` (v2).
-- Uma chave de API do **OpenRouter** (`OPENROUTER_API_KEY`).
-- `just` é **opcional**: todos os comandos funcionam diretamente via `./docker/hermes/scripts/lab.sh` (e quem usa `just` pode usar os atalhos `just hermes-*`).
+- [`just`](https://github.com/casey/just) na máquina local (no macOS: `brew install just`).
+- Uma chave de API do **OpenRouter** (`OPENROUTER_API_KEY`) para o laboratório do Hermes Agent.
 
-## Início rápido
+## Arquitetura do ambiente Docker
 
-### 1. Configure o `.env` (só a chave e o modelo)
+- `docker/compose.yaml` — orquestração unificada com perfis `ci`, `cli`, `local` e `dia-zero`, compartilhando caches de Cargo e separando `target_ci` e `target_linux` em volumes nomeados (sem conflitar com `./target` do host).
+- `docker/ci/Dockerfile` — imagem padronizada de desenvolvimento e CI (`Rust 1.100.0`, `rustfmt`, `clippy`, `musl-tools`, `cargo-nextest`, `cargo-deny`, `cargo-machete`, `zizmor`, `just`).
+- `docker/cli/Dockerfile` — build multi-stage gerando o binário estático `musl` e uma imagem runtime mínima em Alpine (`sexta-feira-cli:local`) sob usuário não-root.
+- `docker/hermes/` — bootstrap não interativo (`bootstrap.sh`) e orquestrador (`lab.sh`) do laboratório Hermes Agent.
+- `.env.example` na raiz — modelo único de configuração local (copiado para `.env` na raiz, ignorado pelo Git).
+
+---
+
+## 1. Desenvolvimento, CI e Build em Docker
+
+Sem instalar `cargo-nextest`, `cargo-deny`, `cargo-machete` ou `zizmor` no seu host:
 
 ```bash
-cp docker/hermes/.env.example docker/hermes/.env
+just docker-ci      # executa fmt, clippy, machete, doc, nextest, doctests, cargo-deny e zizmor
+just docker-lint    # apenas formatação, clippy e machete
+just docker-test    # apenas nextest e doctests
+just docker-build   # gera imagem `sexta-feira-cli:local` e exporta binário estático em ./dist/sexta-feira
+just docker-shell   # abre shell interativo dentro do container de CI
 ```
 
-Edite `docker/hermes/.env` (arquivo ignorado pelo Git) e preencha `OPENROUTER_API_KEY=...` (e ajuste `HERMES_MODEL` se quiser trocar o padrão `anthropic/claude-sonnet-4`).
+## 2. CLI `sexta-feira` containerizada
 
-> Se você rodar `subir` antes de copiar o arquivo, o próprio script cria `docker/hermes/.env` a partir do `.env.example` e avisa o que preencher.
-
-### 2. Suba o laboratório
+Para rodar comandos da CLI em uma sandbox isolada (`cli_dados:/dados` e repositório em `/workspace:ro`):
 
 ```bash
-./docker/hermes/scripts/lab.sh subir
+just cli --json harnesses
+just cli diagnostico
+just cli iniciar --nao-interativo --tratamento "senhor"
+just cli aplicar hermes
+just cli verificar hermes
 ```
 
-No modo padrão (`local`), esse comando:
-1. Compila a CLI `sexta-feira` em `--release` para Linux dentro de um container Rust dedicado (`builder`), reaproveitando caches em volumes nomeados para compilações incrementais rápidas.
-2. Sobe o container do Hermes Agent (`HERMES_HOME=/opt/data`) com o binário `sexta-feira` no `PATH` e o repositório montado em somente leitura em `/workspace/sexta-feira`.
-3. Configura o provedor **OpenRouter** no perfil padrão e no perfil isolado `sexta-feira`, sem tocar em `SOUL.md` nem em `memories/USER.md`.
+---
 
-### 3. Escolha como testar
+## 3. Laboratório local com Hermes Agent
 
-#### Fluxo A — Pedir para o próprio Hermes instalar a Sexta-feira
+### Passo 1 — Configure `.env` na raiz
+
+```bash
+cp .env.example .env
+```
+
+Preencha `OPENROUTER_API_KEY=...` em `.env` (e ajuste `HERMES_MODEL` se quiser trocar o padrão `anthropic/claude-sonnet-4`).
+
+> Se rodar `just subir` antes de copiar `.env`, o fluxo cria `.env` a partir de `.env.example` e informa o que preencher.
+
+### Passo 2 — Suba o laboratório
+
+```bash
+just subir
+```
+
+No modo padrão (`local`), `just subir` compila a CLI Linux em cache, sobe `nousresearch/hermes-agent:latest` (`HERMES_HOME=/opt/data`) com o repositório montado em `/workspace/sexta-feira:ro`, aguarda a inicialização do `s6-overlay` e configura o provedor **OpenRouter** tanto no perfil padrão quanto no perfil isolado `sexta-feira` (sem criar `SOUL.md` nem `memories/USER.md`).
+
+### Passo 3 — Escolha o fluxo de teste
+
+#### Fluxo A — Pedir ao próprio Hermes para instalar a Sexta-feira
 
 1. Abra o chat no perfil padrão:
    ```bash
-   ./docker/hermes/scripts/lab.sh chat-padrao
+   just chat-padrao
    ```
 2. Peça ao agente para ler e seguir a skill local (ou a URL do GitHub):
    ```text
    Leia /workspace/sexta-feira/recursos/skills/instalar-sexta-feira/SKILL.md e instale a Sexta-feira neste ambiente.
    ```
-3. Depois que ele concluir, abra o chat já como **Sexta-feira**:
+3. Depois que ele concluir, converse já no perfil **Sexta-feira**:
    ```bash
-   ./docker/hermes/scripts/lab.sh chat
+   just chat
    ```
 
 #### Fluxo B — Aplicar manualmente pela CLI dentro do container
 
 ```bash
-./docker/hermes/scripts/lab.sh shell
+just shell
 # Dentro do container:
 sexta-feira diagnostico
 sexta-feira iniciar
@@ -60,42 +93,40 @@ sexta-feira aplicar hermes
 sexta-feira verificar hermes
 exit
 
-# Conversar com a Sexta-feira:
-./docker/hermes/scripts/lab.sh chat
+just chat
 ```
+
+> **Dica:** evite rodar comandos `hermes -p sexta-feira ...` (como `status`, `config show` ou `chat`) *antes* de aplicar o setup com `sexta-feira aplicar hermes`, pois o Hermes cria automaticamente um `SOUL.md` padrão ao inicializar o perfil — o que gerará `CONFLITO` no próximo `plano` (resolvível com `--forcar`).
 
 #### Fluxo C — Modo `dia-zero` (VPS limpa sem CLI pré-instalada)
 
-Para testar o Hermes baixando a última Release publicada do GitHub (`SHA256SUMS.txt`) ou usando fallback assistido sem o binário local nem o repositório montado:
+Para testar o Hermes baixando a Release do GitHub (`SHA256SUMS.txt`) ou usando fallback assistido sem o binário local nem o repositório montado:
 
 ```bash
-./docker/hermes/scripts/lab.sh subir dia-zero
-./docker/hermes/scripts/lab.sh chat-padrao dia-zero
+just subir dia-zero
+just chat-padrao dia-zero
+# Após instalar:
+just chat sexta-feira dia-zero
 ```
 
-Depois de instalado, converse no perfil `sexta-feira` do modo `dia-zero`:
+---
 
-```bash
-./docker/hermes/scripts/lab.sh chat sexta-feira dia-zero
-```
+## Gerenciamento rápido (`just --list`)
 
-## Gerenciamento e limpeza
-
-| Ação | Script direto | Com `just` | O que faz |
-|---|---|---|---|
-| Subir (`local` ou `dia-zero`) | `./docker/hermes/scripts/lab.sh subir [modo]` | `just hermes-subir [modo]` | Compila (em `local`), sobe e configura OpenRouter |
-| Reconfigurar modelo | `./docker/hermes/scripts/lab.sh subir local --reconfigurar` | `just hermes-subir local --reconfigurar` | Atualiza `model.*` e `.env` após editar `.env` |
-| Chat como Sexta-feira | `./docker/hermes/scripts/lab.sh chat [perfil] [modo]` | `just hermes-chat [perfil] [modo]` | Abre `hermes -p <perfil> chat` |
-| Chat no perfil padrão | `./docker/hermes/scripts/lab.sh chat-padrao [modo]` | `just hermes-chat-padrao [modo]` | Abre `hermes chat` no perfil padrão |
-| Shell no container | `./docker/hermes/scripts/lab.sh shell [modo]` | `just hermes-shell [modo]` | Abre `bash` como usuário `hermes` |
-| Estado e verificação | `./docker/hermes/scripts/lab.sh status` | `just hermes-status` | Lista containers, volumes e roda `sexta-feira verificar hermes` |
-| Logs | `./docker/hermes/scripts/lab.sh logs [modo]` | `just hermes-logs [modo]` | Acompanha logs do container |
-| Parar containers | `./docker/hermes/scripts/lab.sh parar` | `just hermes-parar` | Para os containers preservando tudo |
-| Resetar dados do Hermes | `./docker/hermes/scripts/lab.sh resetar [local\|dia-zero\|todos]` | `just hermes-resetar [alvo]` | Apaga só os dados do Hermes, mantendo cache Rust |
-| Deletar tudo | `./docker/hermes/scripts/lab.sh destruir [--sim]` | `just hermes-destruir [--sim]` | Remove containers, rede e **todos** os volumes (inclusive caches) |
+| Comando | O que faz |
+|---|---|
+| `just subir [local\|dia-zero] [--reconfigurar]` | Compila (em `local`), sobe o Hermes e configura OpenRouter |
+| `just chat [perfil] [local\|dia-zero]` | Abre `hermes -p <perfil> chat` (padrão: `sexta-feira`, `local`) |
+| `just chat-padrao [local\|dia-zero]` | Abre `hermes chat` no perfil padrão |
+| `just shell [local\|dia-zero]` | Abre `bash` como usuário `hermes` no container |
+| `just status` | Mostra containers, volumes e roda `sexta-feira verificar hermes` |
+| `just logs [local\|dia-zero]` | Acompanha os logs do container Hermes |
+| `just parar` | Para apenas os containers do laboratório preservando dados e caches |
+| `just resetar [local\|dia-zero\|todos]` | Apaga só os dados do Hermes, preservando CI, CLI e caches Rust |
+| `just destruir [--sim]` | Remove **todos** os containers, redes e volumes Docker do projeto |
 
 ## Solução de problemas
 
-- **Alterei `HERMES_MODEL` ou `OPENROUTER_API_KEY` em `docker/hermes/.env`:** rode `./docker/hermes/scripts/lab.sh subir local --reconfigurar` (o bootstrap normal preserva `config.yaml` existentes para não sobrescrever ajustes manuais feitos em testes).
-- **Quero testar a skill do zero novamente sem esperar recompilar o Rust:** use `./docker/hermes/scripts/lab.sh resetar` e depois `subir`.
-- **Erro ao conectar no daemon Docker:** verifique se o Docker Desktop (ou Docker Engine) está em execução.
+- **Alterei `HERMES_MODEL` em `.env`:** rode `just subir local --reconfigurar` para atualizar os `config.yaml` existentes. Se mudou apenas `OPENROUTER_API_KEY`, `just subir` já sincroniza a chave automaticamente.
+- **Quero retestar a instalação do zero rápido:** rode `just resetar` e depois `just subir` (preserva o cache de compilação Rust).
+- **Ainda não tenho `just` instalado no macOS:** instale com `brew install just` ou chame diretamente `./docker/hermes/lab.sh <comando>`.

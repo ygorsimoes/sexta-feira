@@ -156,6 +156,7 @@ sexta-feira/
 │   ├── mordomo/               # fonte única padrão de `persona.toml` e `usuario.toml`
 │   └── skills/                # skills (SKILL.md), incluindo instalação guiada por agente
 ├── docs/                      # visão, arquitetura, stack, especificações e planos
+├── docker/                    # Dockerfiles (CI e CLI), compose unificado e laboratório Hermes
 └── .github/                   # workflows de CI, auditoria, release-please e CD
 ```
 
@@ -163,11 +164,12 @@ sexta-feira/
 
 ## 💻 Desenvolvimento
 
-Antes de abrir uma pull request a partir de uma branch criada da `main`, rode localmente o que estiver disponível no seu ambiente:
+Antes de abrir uma pull request a partir de uma branch criada da `main`, rode localmente (ou dentro do container de CI padronizado via Docker):
 
 ```bash
-just ci    # roda lint (fmt, clippy, machete), doc, testes (nextest + doctests), cargo-deny e zizmor
-just       # lista todas as receitas disponíveis
+just ci         # roda localmente lint (fmt, clippy, machete), doc, testes, cargo-deny e zizmor
+just docker-ci  # roda os mesmos checks dentro do container Docker (sem instalar ferramentas no host)
+just            # lista todos os grupos e receitas disponíveis
 ```
 
 Sem `just`, execute os comandos equivalentes:
@@ -187,7 +189,7 @@ Todo trabalho segue o fluxo descrito em [CONTRIBUTING.md](CONTRIBUTING.md) (`iss
 ## 📚 Documentação
 
 - [Visão e arquitetura](docs/visao.md)
-- [Ambiente local em Docker (Hermes Agent)](docs/ambiente-local-docker.md)
+- [Ambiente Docker (CI, CLI e laboratório Hermes)](docs/ambiente-local-docker.md)
 - [Stack de bibliotecas e ferramentas](docs/stack.md)
 - [Como contribuir](CONTRIBUTING.md)
 - [Guia para agentes](AGENTS.md)

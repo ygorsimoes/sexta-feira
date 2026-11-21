@@ -9,6 +9,7 @@ Sexta-feira é um pacote opinativo e agnóstico de harness para configurar um ag
 - `crates/sexta-feira-cli`: binário `sexta-feira`.
 - `recursos/`: fonte única dos ativos do mordomo (persona, perfil do usuário e futuros recursos embutidos).
 - `docs/`: visão, arquitetura, stack e especificações.
+- `docker/`: imagens Docker de CI e CLI, `compose.yaml` unificado e laboratório do Hermes Agent.
 - `spikes/`: experimentos descartáveis, fora do workspace.
 - `.github/`: workflows, Dependabot e modelos de issue e de pull request.
 
@@ -18,7 +19,7 @@ Sexta-feira é um pacote opinativo e agnóstico de harness para configurar um ag
 2. Faça a mudança e abra a pull request preenchendo o modelo.
 3. A validação final é o CI da pull request. Acompanhe os checks e corrija o que falhar antes de dar o trabalho por concluído.
 
-Antes de abrir a pull request, rode localmente o que estiver disponível (`just ci`, ou os comandos `cargo` da tabela abaixo) para não gastar uma rodada de CI com um erro simples. O `Cargo.lock` é sempre gerado pelo `cargo`, nunca editado à mão.
+Antes de abrir a pull request, rode localmente o que estiver disponível (`just ci`, `just docker-ci`, ou os comandos `cargo` da tabela abaixo) para não gastar uma rodada de CI com um erro simples. O `Cargo.lock` é sempre gerado pelo `cargo`, nunca editado à mão.
 
 ## O que o CI verifica
 

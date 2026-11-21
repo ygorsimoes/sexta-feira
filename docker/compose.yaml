@@ -30,14 +30,14 @@ services:
     image: sexta-feira-ci:local
     working_dir: /workspace
     environment:
-      CARGO_TARGET_DIR: /workspace/target-docker
+      CARGO_TARGET_DIR: /target-docker
       CARGO_TERM_COLOR: always
       RUSTUP_TOOLCHAIN: 1.100.0
     volumes:
       - ..:/workspace
       - cargo_registry:/usr/local/cargo/registry
       - cargo_git:/usr/local/cargo/git
-      - target_ci:/workspace/target-docker
+      - target_ci:/target-docker
 
   cli:
     profiles: ["cli"]

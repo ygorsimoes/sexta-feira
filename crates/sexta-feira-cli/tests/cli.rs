@@ -338,3 +338,101 @@ fn plano_aplicar_e_verificar_em_json_cobrem_sucesso_pendencia_e_remover() {
     .expect("JSON remoção");
     assert_eq!(plano_rem_json["resumo"]["remover"], 1);
 }
+
+#[test]
+fn verbose_emite_contexto_rico_em_stderr_sem_poluir_json_em_stdout() {
+    let dir = DirTemporario::novo("verbose-json");
+    let destino = dir.path().join("hermes");
+    let destino_str = destino.display().to_string();
+
+    let saida_cmd = comando_cli()
+        .args(["--json", "-vv", "plano", "hermes", "--destino", &destino_str])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(saida_cmd.get_output().stdout.clone()).expect("UTF-8 stdout");
+    let stderr = String::from_utf8(saida_cmd.get_output().stderr.clone()).expect("UTF-8 stderr");
+
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("stdout deve ser JSON puro");
+    assert_eq!(json["harness"], "hermes");
+
+    assert!(stderr.contains("[verbose]"));
+    assert!(stderr.contains("camadas"));
+    assert!(stderr.contains("destino"));
+    assert!(stderr.contains("ArquivoIntegral"));
+    assert!(stderr.contains("BlocoDelimitado"));
+    assert!(stderr.contains("SOUL.md"));
+    assert!(stderr.contains("linhas"));
+    assert!(stderr.contains("XDG_CONFIG_HOME"));
+}
+
+#[test]
+fn sexta_feira_log_mantem_precedencia_sobre_verbose() {
+    let com_env = comando_cli()
+        .env("SEXTA_FEIRA_LOG", "warn")
+        .args(["-vv", "harnesses"])
+        .assert()
+        .success();
+    let stderr_env = String::from_utf8(com_env.get_output().stderr.clone()).expect("UTF-8");
+    assert!(!stderr_env.contains("DEBUG"));
+    assert!(stderr_env.contains("[verbose]"));
+
+    let sem_env = comando_cli()
+        .args(["-vv", "harnesses"])
+        .assert()
+        .success();
+    let stderr_sem_env = String::from_utf8(sem_env.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_sem_env.contains("DEBUG"));
+}
+
+#[test]
+fn plano_aplicar_e_erros_exibem_dicas_acionaveis() {
+    let dir = DirTemporario::novo("dicas-cli");
+    let destino = dir.path().join("hermes");
+    let destino_str = destino.display().to_string();
+
+    let out_plano = saida(&["plano", "hermes", "--destino", &destino_str]);
+    assert!(out_plano.contains("profiles/sexta-feira"));
+    assert!(out_plano.contains("sexta-feira aplicar hermes"));
+
+    let out_aplicar = saida(&["aplicar", "hermes", "--destino", &destino_str]);
+    assert!(out_aplicar.contains("profiles/sexta-feira"));
+    assert!(out_aplicar.contains("sexta-feira verificar hermes"));
+
+    let erro_harness = comando_cli()
+        .args(["plano", "openclaw"])
+        .assert()
+        .failure();
+    let stderr_harness =
+        String::from_utf8(erro_harness.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_harness.contains("sexta-feira harnesses"));
+    assert!(stderr_harness.contains("SKILL.md"));
+
+    fs::create_dir_all(destino.join("profiles/sexta-feira")).expect("cria perfil");
+    fs::write(destino.join("profiles/sexta-feira/SOUL.md"), "# Manual\n").expect("grava SOUL");
+    let erro_conflito = comando_cli()
+        .args(["aplicar", "hermes", "--destino", &destino_str])
+        .assert()
+        .failure();
+    let stderr_conflito =
+        String::from_utf8(erro_conflito.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_conflito.contains("--forcar"));
+    assert!(stderr_conflito.contains("plano"));
+
+    let toml_errado = dir.path().join("usuario-errado.toml");
+    fs::write(&toml_errado, "chave_errada = 1\n").expect("grava toml errado");
+    let erro_toml = comando_cli()
+        .args([
+            "plano",
+            "hermes",
+            "--destino",
+            &destino_str,
+            "--usuario",
+            &toml_errado.display().to_string(),
+        ])
+        .assert()
+        .failure();
+    let stderr_toml = String::from_utf8(erro_toml.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_toml.contains("tratamento"));
+    assert!(stderr_toml.contains("diagnostico"));
+}

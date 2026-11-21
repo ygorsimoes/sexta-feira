@@ -1,25 +1,39 @@
 //! CLI da Sexta-feira.
 
+mod verbose;
+
 use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
-use sexta_feira_adapters::{AdaptadorHermes, ConfiguracaoHermes, Harness};
-use sexta_feira_core::{
-    AdaptadorDeSetup, DefinicaoDoMordomo, FontesDaDefinicao, OperacaoPlanejada, PlanoDeSetup,
-    aplicar, planejar, verificar,
+use sexta_feira_adapters::{
+    AdaptadorHermes, ConfiguracaoHermes, ErroDeHermes, Harness, OrigemResolucaoDestino,
 };
-use tracing_subscriber::EnvFilter;
+use sexta_feira_core::{
+    AdaptadorDeSetup, CamadaDeDefinicao, DefinicaoDoMordomo, ErroDeDefinicao, ErroDePlano,
+    FontesDaDefinicao, OperacaoPlanejada, PlanoDeSetup, aplicar, planejar, verificar,
+};
+
+const AJUDA_RAIZ: &str = "\
+Exemplos:
+  sexta-feira harnesses
+  sexta-feira plano hermes
+  sexta-feira aplicar hermes
+  sexta-feira verificar hermes
+  sexta-feira -vv plano hermes --json";
 
 /// Sexta-feira: setup declarativo do seu mordomo virtual.
 #[derive(Debug, Parser)]
-#[command(name = "sexta-feira", version, about)]
+#[command(name = "sexta-feira", version, about, after_help = AJUDA_RAIZ)]
 struct Cli {
     /// Emite saída estruturada em JSON.
     #[arg(long, global = true)]
     json: bool,
+    /// Aumenta o nível de contexto diagnóstico em `stderr` (`-v`, `-vv`, `-vvv`).
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, global = true)]
+    verbose: u8,
     #[command(subcommand)]
     comando: Comando,
 }
@@ -29,8 +43,10 @@ enum Comando {
     /// Lista os harnesses previstos.
     Harnesses,
     /// Exibe o plano de mudanças sem alterar o disco.
+    #[command(after_help = "Exemplo: sexta-feira plano hermes --perfil sexta-feira")]
     Plano(OpcoesAlvo),
     /// Aplica o setup declarativo no harness escolhido.
+    #[command(after_help = "Exemplo: sexta-feira aplicar hermes")]
     Aplicar {
         #[command(flatten)]
         alvo: OpcoesAlvo,
@@ -39,6 +55,7 @@ enum Comando {
         forcar: bool,
     },
     /// Verifica se o setup no harness está sincronizado.
+    #[command(after_help = "Exemplo: sexta-feira verificar hermes")]
     Verificar(OpcoesAlvo),
 }
 
@@ -115,33 +132,72 @@ struct VerificarJson<'a> {
     itens: Vec<ItemVerificacaoJson<'a>>,
 }
 
-fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_env("SEXTA_FEIRA_LOG").unwrap_or_else(|_| EnvFilter::new("warn")),
-        )
-        .with_writer(std::io::stderr)
-        .init();
+struct ContextoAlvo {
+    definicao: DefinicaoDoMordomo,
+    camadas: Vec<CamadaDeDefinicao>,
+    fontes: FontesDaDefinicao,
+    adaptador: Box<dyn AdaptadorDeSetup>,
+    destino_base: PathBuf,
+    origem_destino: OrigemResolucaoDestino,
+    perfil_dir: PathBuf,
+}
 
+#[derive(Debug)]
+struct ErroHarnessNaoImplementado {
+    harness: Harness,
+}
+
+impl std::fmt::Display for ErroHarnessNaoImplementado {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "adaptador para `{}` ainda não implementado (status: em breve)",
+            self.harness
+        )
+    }
+}
+
+impl std::error::Error for ErroHarnessNaoImplementado {}
+
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+    verbose::inicializar_tracing(cli.verbose);
+
+    if let Err(erro) = executar(cli) {
+        let mut err = std::io::stderr().lock();
+        let _ = writeln!(err, "Erro: {erro:#}");
+        if let Some(dica) = sugerir_dica(&erro) {
+            let _ = writeln!(err, "Dica: {dica}");
+        }
+        return std::process::ExitCode::FAILURE;
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+fn executar(cli: Cli) -> anyhow::Result<()> {
     let json = cli.json;
+    let nivel_verbose = cli.verbose;
 
     match cli.comando {
         Comando::Harnesses => {
+            verbose::emitir_ambiente(nivel_verbose, "harnesses");
             tracing::debug!(json, "executando subcomando harnesses");
             listar_harnesses(json)?;
         }
         Comando::Plano(alvo) => {
+            verbose::emitir_ambiente(nivel_verbose, "plano");
             tracing::debug!(harness = %alvo.harness, json, "executando subcomando plano");
-            executar_plano(&alvo, json)?;
+            executar_plano(&alvo, json, nivel_verbose)?;
         }
         Comando::Aplicar { alvo, forcar } => {
+            verbose::emitir_ambiente(nivel_verbose, "aplicar");
             tracing::debug!(harness = %alvo.harness, forcar, json, "executando subcomando aplicar");
-            executar_aplicar(&alvo, forcar, json)?;
+            executar_aplicar(&alvo, forcar, json, nivel_verbose)?;
         }
         Comando::Verificar(alvo) => {
+            verbose::emitir_ambiente(nivel_verbose, "verificar");
             tracing::debug!(harness = %alvo.harness, json, "executando subcomando verificar");
-            executar_verificar(&alvo, json)?;
+            executar_verificar(&alvo, json, nivel_verbose)?;
         }
     }
     Ok(())
@@ -168,21 +224,34 @@ fn listar_harnesses(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolver_adaptador(alvo: &OpcoesAlvo) -> anyhow::Result<Box<dyn AdaptadorDeSetup>> {
+fn resolver_adaptador(
+    alvo: &OpcoesAlvo,
+) -> anyhow::Result<(
+    Box<dyn AdaptadorDeSetup>,
+    PathBuf,
+    OrigemResolucaoDestino,
+    PathBuf,
+)> {
     match alvo.harness {
         Harness::Hermes => {
-            let config =
-                ConfiguracaoHermes::resolver(alvo.destino.as_deref(), alvo.perfil.as_deref())?;
-            Ok(Box::new(AdaptadorHermes::new(config)))
+            let env_hermes_home = std::env::var("HERMES_HOME").ok();
+            let env_home = std::env::var("HOME").ok();
+            let (config, origem) = ConfiguracaoHermes::resolver_com_origem(
+                alvo.destino.as_deref(),
+                env_hermes_home.as_deref(),
+                env_home.as_deref(),
+                alvo.perfil.as_deref(),
+            )?;
+            let base = config.hermes_home.clone();
+            let perfil_dir = config.diretorio_do_perfil();
+            Ok((Box::new(AdaptadorHermes::new(config)), base, origem, perfil_dir))
         }
-        outro => bail!("adaptador para `{outro}` ainda não implementado"),
+        outro => Err(ErroHarnessNaoImplementado { harness: outro }.into()),
     }
 }
 
-fn carregar_contexto(
-    alvo: &OpcoesAlvo,
-) -> anyhow::Result<(DefinicaoDoMordomo, Box<dyn AdaptadorDeSetup>)> {
-    let adaptador = resolver_adaptador(alvo)?;
+fn carregar_contexto(alvo: &OpcoesAlvo, nivel_verbose: u8) -> anyhow::Result<ContextoAlvo> {
+    let (adaptador, destino_base, origem_destino, perfil_dir) = resolver_adaptador(alvo)?;
     let mut fontes = FontesDaDefinicao::padrao_do_ambiente();
     if alvo.persona.is_some() {
         fontes.persona_explicita.clone_from(&alvo.persona);
@@ -190,8 +259,25 @@ fn carregar_contexto(
     if alvo.usuario.is_some() {
         fontes.usuario_explicito.clone_from(&alvo.usuario);
     }
-    let definicao = DefinicaoDoMordomo::carregar(&fontes)?;
-    Ok((definicao, adaptador))
+    let (definicao, camadas) = DefinicaoDoMordomo::carregar_com_camadas(&fontes)?;
+    verbose::emitir_contexto_definicao(nivel_verbose, &definicao, &camadas);
+    verbose::emitir_contexto_destino(
+        nivel_verbose,
+        adaptador.id(),
+        &destino_base,
+        origem_destino,
+        &perfil_dir,
+        &adaptador.arquivo_estado(),
+    );
+    Ok(ContextoAlvo {
+        definicao,
+        camadas,
+        fontes,
+        adaptador,
+        destino_base,
+        origem_destino,
+        perfil_dir,
+    })
 }
 
 fn contabilizar_plano(plano: &PlanoDeSetup) -> ResumoPlano {
@@ -208,11 +294,13 @@ fn contabilizar_plano(plano: &PlanoDeSetup) -> ResumoPlano {
     resumo
 }
 
-fn executar_plano(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
-    let (definicao, adaptador) = carregar_contexto(alvo)?;
-    let desejados = adaptador.planejar_arquivos(&definicao)?;
-    let plano = planejar(desejados, adaptador.arquivo_estado())?;
+fn executar_plano(alvo: &OpcoesAlvo, json: bool, nivel_verbose: u8) -> anyhow::Result<()> {
+    let ctx = carregar_contexto(alvo, nivel_verbose)?;
+    let desejados = ctx.adaptador.planejar_arquivos(&ctx.definicao)?;
+    let plano = planejar(desejados, ctx.adaptador.arquivo_estado())?;
+    verbose::emitir_contexto_plano(nivel_verbose, &plano);
     let resumo = contabilizar_plano(&plano);
+    let _ = (&ctx.camadas, &ctx.fontes, &ctx.destino_base, ctx.origem_destino);
 
     let mut saida = std::io::stdout().lock();
     if json {
@@ -239,7 +327,7 @@ fn executar_plano(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
         escrever_json(
             &mut saida,
             &PlanoJson {
-                harness: adaptador.id(),
+                harness: ctx.adaptador.id(),
                 acoes,
                 resumo,
             },
@@ -247,7 +335,12 @@ fn executar_plano(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    writeln!(saida, "Plano para {}:", adaptador.id())?;
+    writeln!(
+        saida,
+        "Plano para {} (destino: {}):",
+        ctx.adaptador.id(),
+        ctx.perfil_dir.display()
+    )?;
     for acao in &plano.acoes {
         let tag = match &acao.operacao {
             OperacaoPlanejada::Criar => "CRIAR",
@@ -281,13 +374,33 @@ fn executar_plano(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
             resumo.criar, resumo.atualizar, resumo.sem_alteracoes, resumo.conflitos
         )?;
     }
+
+    if resumo.conflitos > 0 {
+        writeln!(
+            saida,
+            "Dica: há conflitos; revise o diff acima ou rode `sexta-feira aplicar {} --forcar` para sobrescrever gerando backup `.bak`.",
+            ctx.adaptador.id()
+        )?;
+    } else if resumo.criar > 0 || resumo.atualizar > 0 || resumo.remover > 0 {
+        writeln!(
+            saida,
+            "Dica: execute `sexta-feira aplicar {}` para aplicar as mudanças.",
+            ctx.adaptador.id()
+        )?;
+    }
     Ok(())
 }
 
-fn executar_aplicar(alvo: &OpcoesAlvo, forcar: bool, json: bool) -> anyhow::Result<()> {
-    let (definicao, adaptador) = carregar_contexto(alvo)?;
-    let desejados = adaptador.planejar_arquivos(&definicao)?;
-    let plano = planejar(desejados, adaptador.arquivo_estado())?;
+fn executar_aplicar(
+    alvo: &OpcoesAlvo,
+    forcar: bool,
+    json: bool,
+    nivel_verbose: u8,
+) -> anyhow::Result<()> {
+    let ctx = carregar_contexto(alvo, nivel_verbose)?;
+    let desejados = ctx.adaptador.planejar_arquivos(&ctx.definicao)?;
+    let plano = planejar(desejados, ctx.adaptador.arquivo_estado())?;
+    verbose::emitir_contexto_plano(nivel_verbose, &plano);
     let resultado = aplicar(&plano, forcar)?;
 
     let mut saida = std::io::stdout().lock();
@@ -300,7 +413,7 @@ fn executar_aplicar(alvo: &OpcoesAlvo, forcar: bool, json: bool) -> anyhow::Resu
         escrever_json(
             &mut saida,
             &AplicarJson {
-                harness: adaptador.id(),
+                harness: ctx.adaptador.id(),
                 criados: resultado.criados,
                 atualizados: resultado.atualizados,
                 backups_criados,
@@ -311,8 +424,9 @@ fn executar_aplicar(alvo: &OpcoesAlvo, forcar: bool, json: bool) -> anyhow::Resu
 
     writeln!(
         saida,
-        "Setup aplicado para {}: {} criado(s), {} atualizado(s), {} backup(s)",
-        adaptador.id(),
+        "Setup aplicado para {} em {}: {} criado(s), {} atualizado(s), {} backup(s)",
+        ctx.adaptador.id(),
+        ctx.perfil_dir.display(),
         resultado.criados,
         resultado.atualizados,
         resultado.backups_criados.len()
@@ -320,13 +434,26 @@ fn executar_aplicar(alvo: &OpcoesAlvo, forcar: bool, json: bool) -> anyhow::Resu
     for backup in &resultado.backups_criados {
         writeln!(saida, "Backup criado: {}", backup.display())?;
     }
+    writeln!(
+        saida,
+        "Próximos passos:\n  1. Valide com: sexta-feira verificar {}",
+        ctx.adaptador.id()
+    )?;
+    if let Some(dir_cfg) = ctx.fontes.diretorio_config.as_deref() {
+        writeln!(
+            saida,
+            "  2. Personalize preferências em: {}",
+            dir_cfg.join("usuario.toml").display()
+        )?;
+    }
     Ok(())
 }
 
-fn executar_verificar(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
-    let (definicao, adaptador) = carregar_contexto(alvo)?;
-    let desejados = adaptador.planejar_arquivos(&definicao)?;
-    let resultado = verificar(&desejados, &adaptador.arquivo_estado())?;
+fn executar_verificar(alvo: &OpcoesAlvo, json: bool, nivel_verbose: u8) -> anyhow::Result<()> {
+    let ctx = carregar_contexto(alvo, nivel_verbose)?;
+    let desejados = ctx.adaptador.planejar_arquivos(&ctx.definicao)?;
+    let resultado = verificar(&desejados, &ctx.adaptador.arquivo_estado())?;
+    verbose::emitir_contexto_verificacao(nivel_verbose, &resultado);
 
     let mut saida = std::io::stdout().lock();
     if json {
@@ -342,7 +469,7 @@ fn executar_verificar(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
         escrever_json(
             &mut saida,
             &VerificarJson {
-                harness: adaptador.id(),
+                harness: ctx.adaptador.id(),
                 sincronizado: resultado.sincronizado,
                 itens,
             },
@@ -357,6 +484,12 @@ fn executar_verificar(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
                 item.detalhe
             )?;
         }
+        let sincronizados = resultado.itens.iter().filter(|i| i.sincronizado).count();
+        writeln!(
+            saida,
+            "Resumo: {sincronizados}/{} item(ns) sincronizado(s)",
+            resultado.itens.len()
+        )?;
     }
     drop(saida);
 
@@ -374,6 +507,38 @@ fn executar_verificar(alvo: &OpcoesAlvo, json: bool) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn sugerir_dica(erro: &anyhow::Error) -> Option<&'static str> {
+    if erro.downcast_ref::<ErroHarnessNaoImplementado>().is_some() {
+        return Some(
+            "rode `sexta-feira harnesses` para ver o status atual ou peça ao seu agente para seguir a instalação assistida em `recursos/skills/instalar-sexta-feira/SKILL.md`.",
+        );
+    }
+    if let Some(ErroDePlano::ConflitoPendente { .. }) = erro.downcast_ref::<ErroDePlano>() {
+        return Some(
+            "rode `sexta-feira plano <harness>` para inspecionar o diff ou use `sexta-feira aplicar <harness> --forcar` para sobrescrever gerando backup `.bak`.",
+        );
+    }
+    if let Some(err_def) = erro.downcast_ref::<ErroDeDefinicao>() {
+        return match err_def {
+            ErroDeDefinicao::ArquivoNaoEncontrado { .. } => Some(
+                "confira o caminho informado em `--persona`/`--usuario` ou crie a configuração padrão no diretório `${XDG_CONFIG_HOME:-~/.config}/sexta-feira/`.",
+            ),
+            ErroDeDefinicao::ConfiguracaoUsuarioInvalida { .. }
+            | ErroDeDefinicao::ConfiguracaoPersonaInvalida { .. }
+            | ErroDeDefinicao::TomlUsuarioInvalido(_)
+            | ErroDeDefinicao::TomlPersonaInvalido(_)
+            | ErroDeDefinicao::CampoObrigatorioVazio { .. }
+            | ErroDeDefinicao::ListaObrigatoriaVazia { .. } => Some(
+                "chaves válidas de `usuario.toml` (`tratamento`, `idioma`, `preferencias`) e `persona.toml` (`nome`, `arquetipo`, `idioma`, `resumo`, `tom`, `diretrizes`, `limites`) não aceitam campos extras ou vazios. Use `-vv` ou `diagnostico` para inspecionar as camadas.",
+            ),
+        };
+    }
+    if let Some(ErroDeHermes::DiretorioBaseIndisponivel) = erro.downcast_ref::<ErroDeHermes>() {
+        return Some("informe `--destino <dir>` (ou `--hermes-home <dir>`) ou defina `HERMES_HOME`/`HOME`.");
+    }
+    None
 }
 
 fn escrever_json<T: Serialize + ?Sized>(saida: &mut impl Write, valor: &T) -> anyhow::Result<()> {

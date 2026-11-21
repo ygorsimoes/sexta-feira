@@ -507,6 +507,8 @@ dependencies = [
  "assert_cmd",
  "clap",
  "insta",
+ "serde",
+ "serde_json",
  "sexta-feira-adapters",
  "sexta-feira-core",
  "tracing",

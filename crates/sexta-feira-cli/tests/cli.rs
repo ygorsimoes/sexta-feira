@@ -41,7 +41,9 @@ fn comando_cli() -> Command {
     cmd.env(
         "XDG_CONFIG_HOME",
         std::env::temp_dir().join("sexta-feira-cli-xdg-inexistente"),
-    );
+    )
+    .env_remove("HERMES_HOME")
+    .env_remove("SEXTA_FEIRA_LOG");
     cmd
 }
 
@@ -124,8 +126,7 @@ fn aplicar_hermes_preserva_memorias_existentes_e_respeita_conflito_em_soul() {
     fs::write(&soul_path, "# Persona prévia\n").expect("grava SOUL prévio");
     fs::write(&user_path, "- Prefere café sem açúcar.\n").expect("grava USER prévio");
 
-    let falha = Command::cargo_bin("sexta-feira")
-        .expect("o binário deve existir")
+    let falha = comando_cli()
         .args(["aplicar", "hermes", "--hermes-home", &hermes_home])
         .assert()
         .failure();
@@ -182,9 +183,13 @@ fn verificar_hermes_falha_quando_nao_aplicado_ou_divergente() {
 
 #[test]
 fn harness_nao_implementado_retorna_erro_claro() {
-    let falha = Command::cargo_bin("sexta-feira")
-        .expect("o binário deve existir")
-        .args(["plano", "openclaw"])
+    let falha = comando_cli()
+        .args([
+            "plano",
+            "openclaw",
+            "--usuario",
+            "/tmp/nao-existe-sexta-feira-usuario.toml",
+        ])
         .assert()
         .failure();
     let stderr = String::from_utf8(falha.get_output().stderr.clone()).expect("UTF-8");
@@ -194,17 +199,11 @@ fn harness_nao_implementado_retorna_erro_claro() {
 
 #[test]
 fn logs_tracing_respeitam_sexta_feira_log_e_nao_sujam_stderr_por_padrao() {
-    let padrao = Command::cargo_bin("sexta-feira")
-        .expect("binario")
-        .env_remove("SEXTA_FEIRA_LOG")
-        .arg("harnesses")
-        .assert()
-        .success();
+    let padrao = comando_cli().arg("harnesses").assert().success();
     let stderr_padrao = String::from_utf8(padrao.get_output().stderr.clone()).expect("UTF-8");
     assert_eq!(stderr_padrao.trim(), "");
 
-    let debug = Command::cargo_bin("sexta-feira")
-        .expect("binario")
+    let debug = comando_cli()
         .env("SEXTA_FEIRA_LOG", "debug")
         .arg("harnesses")
         .assert()
@@ -270,8 +269,7 @@ fn personalizacao_via_persona_e_usuario_reflete_em_plano_e_falha_se_ausente() {
         fs::read_to_string(destino.join("profiles/sexta-feira/memories/USER.md")).expect("USER");
     assert!(user.contains("**Tratamento**: comandante"));
 
-    let ausente = Command::cargo_bin("sexta-feira")
-        .expect("binário")
+    let ausente = comando_cli()
         .args([
             "plano",
             "hermes",
@@ -292,8 +290,7 @@ fn plano_aplicar_e_verificar_em_json_cobrem_sucesso_pendencia_e_remover() {
     let destino = dir.path().display().to_string();
     let perfil_dir = dir.path().join("profiles/sexta-feira");
 
-    let verif_pendente = Command::cargo_bin("sexta-feira")
-        .expect("binário")
+    let verif_pendente = comando_cli()
         .args(["--json", "verificar", "hermes", "--destino", &destino])
         .assert()
         .failure();

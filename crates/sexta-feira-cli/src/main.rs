@@ -182,6 +182,7 @@ fn resolver_adaptador(alvo: &OpcoesAlvo) -> anyhow::Result<Box<dyn AdaptadorDeSe
 fn carregar_contexto(
     alvo: &OpcoesAlvo,
 ) -> anyhow::Result<(DefinicaoDoMordomo, Box<dyn AdaptadorDeSetup>)> {
+    let adaptador = resolver_adaptador(alvo)?;
     let mut fontes = FontesDaDefinicao::padrao_do_ambiente();
     if alvo.persona.is_some() {
         fontes.persona_explicita.clone_from(&alvo.persona);
@@ -190,7 +191,6 @@ fn carregar_contexto(
         fontes.usuario_explicito.clone_from(&alvo.usuario);
     }
     let definicao = DefinicaoDoMordomo::carregar(&fontes)?;
-    let adaptador = resolver_adaptador(alvo)?;
     Ok((definicao, adaptador))
 }
 

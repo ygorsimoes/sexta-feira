@@ -1,6 +1,7 @@
 //! CLI da Sexta-feira.
 
 mod diagnostico;
+mod iniciar;
 mod verbose;
 
 use std::io::Write;
@@ -19,6 +20,7 @@ use sexta_feira_core::{
 
 const AJUDA_RAIZ: &str = "\
 Exemplos:
+  sexta-feira iniciar
   sexta-feira diagnostico
   sexta-feira harnesses
   sexta-feira plano hermes
@@ -42,6 +44,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Comando {
+    /// Guia a criação/atualização de `usuario.toml` e opcionalmente aplica o setup.
+    #[command(after_help = "Exemplo: sexta-feira iniciar --tratamento \"senhor\" --nao-interativo")]
+    Iniciar(iniciar::OpcoesIniciar),
     /// Lista os harnesses previstos.
     Harnesses,
     /// Inspeciona ambiente, camadas de configuração e harnesses.
@@ -184,6 +189,11 @@ fn executar(cli: Cli) -> anyhow::Result<()> {
     let nivel_verbose = cli.verbose;
 
     match cli.comando {
+        Comando::Iniciar(opcoes) => {
+            verbose::emitir_ambiente(nivel_verbose, "iniciar");
+            tracing::debug!(json, "executando subcomando iniciar");
+            iniciar::executar(&opcoes, json, nivel_verbose)?;
+        }
         Comando::Harnesses => {
             verbose::emitir_ambiente(nivel_verbose, "harnesses");
             tracing::debug!(json, "executando subcomando harnesses");
@@ -254,7 +264,12 @@ fn resolver_adaptador(
             )?;
             let base = config.hermes_home.clone();
             let perfil_dir = config.diretorio_do_perfil();
-            Ok((Box::new(AdaptadorHermes::new(config)), base, origem, perfil_dir))
+            Ok((
+                Box::new(AdaptadorHermes::new(config)),
+                base,
+                origem,
+                perfil_dir,
+            ))
         }
         outro => Err(ErroHarnessNaoImplementado { harness: outro }.into()),
     }
@@ -310,7 +325,12 @@ fn executar_plano(alvo: &OpcoesAlvo, json: bool, nivel_verbose: u8) -> anyhow::R
     let plano = planejar(desejados, ctx.adaptador.arquivo_estado())?;
     verbose::emitir_contexto_plano(nivel_verbose, &plano);
     let resumo = contabilizar_plano(&plano);
-    let _ = (&ctx.camadas, &ctx.fontes, &ctx.destino_base, ctx.origem_destino);
+    let _ = (
+        &ctx.camadas,
+        &ctx.fontes,
+        &ctx.destino_base,
+        ctx.origem_destino,
+    );
 
     let mut saida = std::io::stdout().lock();
     if json {
@@ -546,7 +566,9 @@ fn sugerir_dica(erro: &anyhow::Error) -> Option<&'static str> {
         };
     }
     if let Some(ErroDeHermes::DiretorioBaseIndisponivel) = erro.downcast_ref::<ErroDeHermes>() {
-        return Some("informe `--destino <dir>` (ou `--hermes-home <dir>`) ou defina `HERMES_HOME`/`HOME`.");
+        return Some(
+            "informe `--destino <dir>` (ou `--hermes-home <dir>`) ou defina `HERMES_HOME`/`HOME`.",
+        );
     }
     None
 }

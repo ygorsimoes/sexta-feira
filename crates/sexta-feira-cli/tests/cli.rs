@@ -346,7 +346,14 @@ fn verbose_emite_contexto_rico_em_stderr_sem_poluir_json_em_stdout() {
     let destino_str = destino.display().to_string();
 
     let saida_cmd = comando_cli()
-        .args(["--json", "-vv", "plano", "hermes", "--destino", &destino_str])
+        .args([
+            "--json",
+            "-vv",
+            "plano",
+            "hermes",
+            "--destino",
+            &destino_str,
+        ])
         .assert()
         .success();
 
@@ -377,10 +384,7 @@ fn sexta_feira_log_mantem_precedencia_sobre_verbose() {
     assert!(!stderr_env.contains("DEBUG"));
     assert!(stderr_env.contains("[verbose]"));
 
-    let sem_env = comando_cli()
-        .args(["-vv", "harnesses"])
-        .assert()
-        .success();
+    let sem_env = comando_cli().args(["-vv", "harnesses"]).assert().success();
     let stderr_sem_env = String::from_utf8(sem_env.get_output().stderr.clone()).expect("UTF-8");
     assert!(stderr_sem_env.contains("DEBUG"));
 }
@@ -399,10 +403,7 @@ fn plano_aplicar_e_erros_exibem_dicas_acionaveis() {
     assert!(out_aplicar.contains("profiles/sexta-feira"));
     assert!(out_aplicar.contains("sexta-feira verificar hermes"));
 
-    let erro_harness = comando_cli()
-        .args(["plano", "openclaw"])
-        .assert()
-        .failure();
+    let erro_harness = comando_cli().args(["plano", "openclaw"]).assert().failure();
     let stderr_harness =
         String::from_utf8(erro_harness.get_output().stderr.clone()).expect("UTF-8");
     assert!(stderr_harness.contains("sexta-feira harnesses"));
@@ -526,4 +527,182 @@ fn diagnostico_em_json_e_texto_cobre_ambiente_config_invalida_e_harnesses() {
             .expect("proximo_passo")
             .contains("sincronizado")
     );
+}
+
+#[test]
+fn iniciar_sem_tty_falha_sem_nao_interativo() {
+    let dir = DirTemporario::novo("iniciar-sem-tty");
+    let falha = comando_cli()
+        .args(["iniciar", "--config-dir", &dir.path().display().to_string()])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8(falha.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr.contains("--nao-interativo"));
+}
+
+#[test]
+fn iniciar_nao_interativo_cria_mantem_mescla_com_backup_e_rejeita_invalido() {
+    let dir = DirTemporario::novo("iniciar-ciclo");
+    let config_dir = dir.path().join("cfg");
+    let config_str = config_dir.display().to_string();
+    let usuario_toml = config_dir.join("usuario.toml");
+
+    // 1. Cria usuario.toml novo
+    let out_criar = comando_cli()
+        .args([
+            "--json",
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--tratamento",
+            "comandante",
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let json_criar: serde_json::Value =
+        serde_json::from_slice(&out_criar.get_output().stdout).expect("JSON criar");
+    assert_eq!(json_criar["acao"], "criado");
+    assert!(usuario_toml.exists());
+
+    // 2. Idempotente sem alterações -> mantido sem backup
+    let out_mantido = comando_cli()
+        .args([
+            "--json",
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let json_mantido: serde_json::Value =
+        serde_json::from_slice(&out_mantido.get_output().stdout).expect("JSON mantido");
+    assert_eq!(json_mantido["acao"], "mantido");
+    assert!(!config_dir.join("usuario.toml.bak").exists());
+
+    // 3. Alteração sem --sobrescrever falha
+    let falha_sobrescrever = comando_cli()
+        .args([
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--tratamento",
+            "chefe",
+            "--nao-interativo",
+        ])
+        .assert()
+        .failure();
+    let stderr_sob =
+        String::from_utf8(falha_sobrescrever.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_sob.contains("--sobrescrever"));
+
+    // 4. Patch com --sobrescrever preserva tratamento existente e cria .bak
+    let out_patch = comando_cli()
+        .args([
+            "--json",
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--preferencia",
+            "Direto ao ponto",
+            "--sobrescrever",
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let json_patch: serde_json::Value =
+        serde_json::from_slice(&out_patch.get_output().stdout).expect("JSON patch");
+    assert_eq!(json_patch["acao"], "atualizado");
+    assert!(config_dir.join("usuario.toml.bak").exists());
+
+    let conteudo_atual = fs::read_to_string(&usuario_toml).expect("lê usuario.toml");
+    assert!(conteudo_atual.contains("comandante"));
+    assert!(conteudo_atual.contains("Direto ao ponto"));
+}
+
+#[test]
+fn iniciar_rejeita_valor_vazio_e_regenera_corrompido_com_backup() {
+    let dir = DirTemporario::novo("iniciar-corrompido");
+    let config_dir = dir.path().join("cfg");
+    let config_str = config_dir.display().to_string();
+    let usuario_toml = config_dir.join("usuario.toml");
+
+    fs::create_dir_all(&config_dir).expect("cria dir");
+    fs::write(&usuario_toml, "tratamento = \"comandante\"\n").expect("grava valido");
+
+    // 1. Valor vazio é rejeitado antes de gravar ou sobrescrever
+    let falha_vazio = comando_cli()
+        .args([
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--tratamento",
+            "   ",
+            "--sobrescrever",
+            "--nao-interativo",
+        ])
+        .assert()
+        .failure();
+    let stderr_vazio = String::from_utf8(falha_vazio.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_vazio.contains("vazio"));
+    assert!(!config_dir.join("usuario.toml.bak").exists());
+    let conteudo_preservado = fs::read_to_string(&usuario_toml).expect("preservado");
+    assert!(conteudo_preservado.contains("comandante"));
+
+    // 2. Arquivo corrompido exige --sobrescrever e regenera com .bak
+    fs::write(&usuario_toml, "chave_errada = 1\n").expect("corrompe arquivo");
+    let _ = comando_cli()
+        .args(["iniciar", "--config-dir", &config_str, "--nao-interativo"])
+        .assert()
+        .failure();
+
+    let out_regen = comando_cli()
+        .args([
+            "--json",
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--tratamento",
+            "senhor",
+            "--sobrescrever",
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let json_regen: serde_json::Value =
+        serde_json::from_slice(&out_regen.get_output().stdout).expect("JSON regen");
+    assert_eq!(json_regen["acao"], "atualizado");
+    assert!(config_dir.join("usuario.toml.bak").exists());
+}
+
+#[test]
+fn iniciar_nao_interativo_pode_aplicar_no_hermes_e_emitir_json() {
+    let dir = DirTemporario::novo("iniciar-hermes");
+    let xdg = dir.path().join("xdg");
+    let destino = dir.path().join("hermes");
+
+    let out = comando_cli()
+        .env("XDG_CONFIG_HOME", &xdg)
+        .args([
+            "--json",
+            "iniciar",
+            "--tratamento",
+            "almirante",
+            "--harness",
+            "hermes",
+            "--destino",
+            &destino.display().to_string(),
+            "--aplicar",
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+
+    let json: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).expect("JSON");
+    assert_eq!(json["acao"], "criado");
+    assert_eq!(json["aplicado"]["criados"], 2);
+
+    let soul = fs::read_to_string(destino.join("profiles/sexta-feira/SOUL.md")).expect("SOUL");
+    assert!(soul.contains("almirante"));
 }

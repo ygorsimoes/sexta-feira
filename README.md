@@ -187,6 +187,7 @@ Todo trabalho segue o fluxo descrito em [CONTRIBUTING.md](CONTRIBUTING.md) (`iss
 ## 📚 Documentação
 
 - [Visão e arquitetura](docs/visao.md)
+- [Ambiente local em Docker (Hermes Agent)](docs/ambiente-local-docker.md)
 - [Stack de bibliotecas e ferramentas](docs/stack.md)
 - [Como contribuir](CONTRIBUTING.md)
 - [Guia para agentes](AGENTS.md)

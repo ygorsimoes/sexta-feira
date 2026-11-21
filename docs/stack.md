@@ -22,5 +22,6 @@ Bibliotecas e ferramentas confirmadas para o projeto. Uma biblioteca só entra n
 | Qualidade | `rustfmt`, `clippy` com avisos como erro, `cargo-deny`, `cargo-machete` (dependências sem uso) |
 | CI | GitHub Actions, com `zizmor` para a segurança dos workflows |
 | Atualização de dependências | Dependabot (Cargo, GitHub Actions e versão do Rust) |
+| Releases e CD | `release-please` + compilação de binários por tag no GitHub Actions |
 | Tarefas locais | `just` |
 | Commits | Conventional Commits em pt-BR |

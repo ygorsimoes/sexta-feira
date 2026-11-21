@@ -24,3 +24,5 @@ ci:
           - ".github/**"
           - "justfile"
           - "deny.toml"
+          - "release-please-config.json"
+          - ".release-please-manifest.json"

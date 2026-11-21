@@ -133,6 +133,8 @@ pub struct DiagnosticoHarness {
     pub diretorio_perfil: Option<CaminhoDiagnosticado>,
     /// Caminho esperado do arquivo de estado gerenciado.
     pub arquivo_estado: Option<CaminhoDiagnosticado>,
+    /// Erro ocorrido ao tentar resolver o destino ou perfil deste harness, quando houver.
+    pub erro_destino: Option<String>,
     /// Caminhos convencionais detectados em disco (para harnesses ainda sem adapter).
     pub caminhos_indicativos: Vec<PathBuf>,
 }
@@ -154,7 +156,9 @@ pub fn inspecionar_ambiente_harnesses(
     alvos
         .into_iter()
         .map(|harness| match harness {
-            Harness::Hermes => inspecionar_hermes(destino_explicito, perfil, env_hermes_home, env_home),
+            Harness::Hermes => {
+                inspecionar_hermes(destino_explicito, perfil, env_hermes_home, env_home)
+            }
             outro => inspecionar_em_breve(outro, env_home),
         })
         .collect()
@@ -166,7 +170,12 @@ fn inspecionar_hermes(
     env_hermes_home: Option<&str>,
     env_home: Option<&str>,
 ) -> DiagnosticoHarness {
-    match ConfiguracaoHermes::resolver_com_origem(destino_explicito, env_hermes_home, env_home, perfil) {
+    match ConfiguracaoHermes::resolver_com_origem(
+        destino_explicito,
+        env_hermes_home,
+        env_home,
+        perfil,
+    ) {
         Ok((config, origem_destino)) => {
             let destino_base = CaminhoDiagnosticado::de_path(config.hermes_home.clone());
             let diretorio_perfil = CaminhoDiagnosticado::de_path(config.diretorio_do_perfil());
@@ -180,10 +189,11 @@ fn inspecionar_hermes(
                 destino_base: Some(destino_base),
                 diretorio_perfil: Some(diretorio_perfil),
                 arquivo_estado: Some(arquivo_estado),
+                erro_destino: None,
                 caminhos_indicativos: Vec::new(),
             }
         }
-        Err(_) => DiagnosticoHarness {
+        Err(erro) => DiagnosticoHarness {
             harness: Harness::Hermes,
             disponivel: true,
             status: Harness::Hermes.rotulo_status(),
@@ -191,6 +201,7 @@ fn inspecionar_hermes(
             destino_base: None,
             diretorio_perfil: None,
             arquivo_estado: None,
+            erro_destino: Some(erro.to_string()),
             caminhos_indicativos: Vec::new(),
         },
     }
@@ -228,6 +239,7 @@ fn inspecionar_em_breve(harness: Harness, env_home: Option<&str>) -> Diagnostico
         destino_base: None,
         diretorio_perfil: None,
         arquivo_estado: None,
+        erro_destino: None,
         caminhos_indicativos,
     }
 }
@@ -270,15 +282,16 @@ mod tests {
 
     #[test]
     fn inspecionar_ambiente_harnesses_detecta_hermes_e_caminhos_indicativos() {
-        let base = std::env::temp_dir().join(format!(
-            "sexta-feira-adapters-diag-{}",
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("sexta-feira-adapters-diag-{}", std::process::id()));
         let hermes_perfil = base.join(".hermes/profiles/sexta-feira");
         let claude_dir = base.join(".claude");
         std::fs::create_dir_all(&hermes_perfil).expect("cria perfil hermes");
-        std::fs::write(hermes_perfil.join(".sexta-feira-estado.toml"), "versao = 1\n")
-            .expect("cria estado");
+        std::fs::write(
+            hermes_perfil.join(".sexta-feira-estado.toml"),
+            "versao = 1\n",
+        )
+        .expect("cria estado");
         std::fs::create_dir_all(&claude_dir).expect("cria claude");
 
         let home_str = base.display().to_string();

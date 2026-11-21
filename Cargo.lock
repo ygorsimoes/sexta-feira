@@ -511,6 +511,7 @@ dependencies = [
  "serde_json",
  "sexta-feira-adapters",
  "sexta-feira-core",
+ "toml 1.2.2+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]

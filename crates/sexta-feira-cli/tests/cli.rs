@@ -496,6 +496,8 @@ fn diagnostico_em_json_e_texto_cobre_ambiente_config_invalida_e_harnesses() {
     let txt_inv = String::from_utf8(diag_invalido_txt.get_output().stdout.clone()).expect("UTF-8");
     assert!(txt_inv.contains("inválida"));
     assert!(txt_inv.contains("hermes"));
+    assert!(!txt_inv.contains("destino indisponível"));
+    assert!(txt_inv.contains("não verificado"));
 
     // 3. Corrige config, aplica no Hermes e filtra `diagnostico hermes`
     fs::write(
@@ -705,4 +707,204 @@ fn iniciar_nao_interativo_pode_aplicar_no_hermes_e_emitir_json() {
 
     let soul = fs::read_to_string(destino.join("profiles/sexta-feira/SOUL.md")).expect("SOUL");
     assert!(soul.contains("almirante"));
+}
+
+#[test]
+fn iniciar_recupera_arquivo_semanticamente_invalido_rotaciona_bak_e_rejeita_preferencia_vazia() {
+    let dir = DirTemporario::novo("iniciar-semantico");
+    let config_dir = dir.path().join("cfg");
+    let config_str = config_dir.display().to_string();
+    let usuario_toml = config_dir.join("usuario.toml");
+    fs::create_dir_all(&config_dir).expect("cria dir");
+
+    // 1. Rejeita --preferencia "" antes de escrever
+    let falha_pref = comando_cli()
+        .args([
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--preferencia",
+            "",
+            "--nao-interativo",
+        ])
+        .assert()
+        .failure();
+    assert!(!usuario_toml.exists());
+    let stderr_pref = String::from_utf8(falha_pref.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_pref.contains("preferencias"));
+
+    // 2. Arquivo com chaves válidas mas valores semanticamente vazios
+    fs::write(&usuario_toml, "tratamento = \"\"\npreferencias = []\n").expect("grava vazio");
+    let falha_sem_sob = comando_cli()
+        .args(["iniciar", "--config-dir", &config_str, "--nao-interativo"])
+        .assert()
+        .failure();
+    let stderr_sem_sob =
+        String::from_utf8(falha_sem_sob.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stderr_sem_sob.contains("--sobrescrever"));
+
+    let out_regen1 = comando_cli()
+        .args([
+            "--json",
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--tratamento",
+            "comandante",
+            "--sobrescrever",
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let j1: serde_json::Value =
+        serde_json::from_slice(&out_regen1.get_output().stdout).expect("JSON 1");
+    assert_eq!(j1["acao"], "atualizado");
+    assert!(config_dir.join("usuario.toml.bak").exists());
+
+    // 3. Segunda sobrescrita gera backup numerado .bak.1
+    let out_regen2 = comando_cli()
+        .args([
+            "--json",
+            "iniciar",
+            "--config-dir",
+            &config_str,
+            "--tratamento",
+            "capitão",
+            "--sobrescrever",
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let j2: serde_json::Value =
+        serde_json::from_slice(&out_regen2.get_output().stdout).expect("JSON 2");
+    assert_eq!(j2["acao"], "atualizado");
+    assert!(config_dir.join("usuario.toml.bak.1").exists());
+}
+
+#[test]
+fn diagnostico_reporta_erro_de_perfil_ou_estado_sem_dizer_destino_indisponivel() {
+    let dir = DirTemporario::novo("diag-erro-estado");
+    let destino = dir.path().join("hermes");
+    let destino_str = destino.display().to_string();
+
+    // 1. Perfil inválido no argumento --perfil
+    let diag_perfil = comando_cli()
+        .args([
+            "diagnostico",
+            "hermes",
+            "--destino",
+            &destino_str,
+            "--perfil",
+            "../invalido",
+        ])
+        .assert()
+        .success();
+    let txt_perfil = String::from_utf8(diag_perfil.get_output().stdout.clone()).expect("UTF-8");
+    assert!(!txt_perfil.contains("destino indisponível"));
+    assert!(txt_perfil.contains("erro"));
+
+    // 2. Estado corrompido no Hermes
+    let perfil_dir = destino.join("profiles/sexta-feira");
+    fs::create_dir_all(&perfil_dir).expect("cria perfil");
+    fs::write(
+        perfil_dir.join(".sexta-feira-estado.toml"),
+        "versao = 999\n",
+    )
+    .expect("grava estado inválido");
+
+    let diag_estado = comando_cli()
+        .args(["--json", "diagnostico", "hermes", "--destino", &destino_str])
+        .assert()
+        .success();
+    let json_estado: serde_json::Value =
+        serde_json::from_slice(&diag_estado.get_output().stdout).expect("JSON estado");
+    assert!(json_estado["harnesses"][0]["erro"].as_str().is_some());
+    assert!(
+        !json_estado["proximo_passo"]
+            .as_str()
+            .expect("proximo_passo")
+            .contains("Informe `--destino")
+    );
+}
+
+#[test]
+fn json_com_vvv_e_trace_nao_contamina_stdout_em_nenhum_subcomando() {
+    let dir = DirTemporario::novo("json-vvv-todos");
+    let xdg = dir.path().join("xdg");
+    let destino = dir.path().join("hermes");
+    let destino_str = destino.display().to_string();
+
+    let casos: Vec<Vec<&str>> = vec![
+        vec!["--json", "-vvv", "harnesses"],
+        vec!["--json", "-vvv", "diagnostico", "--destino", &destino_str],
+        vec![
+            "--json",
+            "-vvv",
+            "iniciar",
+            "--tratamento",
+            "senhor",
+            "--nao-interativo",
+        ],
+        vec![
+            "--json",
+            "-vvv",
+            "plano",
+            "hermes",
+            "--destino",
+            &destino_str,
+        ],
+        vec![
+            "--json",
+            "-vvv",
+            "aplicar",
+            "hermes",
+            "--destino",
+            &destino_str,
+        ],
+        vec![
+            "--json",
+            "-vvv",
+            "verificar",
+            "hermes",
+            "--destino",
+            &destino_str,
+        ],
+    ];
+
+    for args in casos {
+        let res = comando_cli()
+            .env("XDG_CONFIG_HOME", &xdg)
+            .env("SEXTA_FEIRA_LOG", "trace")
+            .args(&args)
+            .assert()
+            .success();
+        let stdout = String::from_utf8(res.get_output().stdout.clone()).expect("UTF-8");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout deve ser JSON puro com -vvv/trace");
+        assert!(!parsed.is_null());
+    }
+
+    // Caso de falha controlada em verificar com --json -vvv
+    fs::write(
+        destino.join("profiles/sexta-feira/SOUL.md"),
+        "# Divergente\n",
+    )
+    .expect("altera SOUL");
+    let verif_falha = comando_cli()
+        .env("XDG_CONFIG_HOME", &xdg)
+        .args([
+            "--json",
+            "-vvv",
+            "verificar",
+            "hermes",
+            "--destino",
+            &destino_str,
+        ])
+        .assert()
+        .failure();
+    let stdout_falha =
+        String::from_utf8(verif_falha.get_output().stdout.clone()).expect("UTF-8 falha");
+    let json_falha: serde_json::Value =
+        serde_json::from_str(&stdout_falha).expect("stdout de verificar falha deve ser JSON puro");
+    assert_eq!(json_falha["sincronizado"], false);
 }

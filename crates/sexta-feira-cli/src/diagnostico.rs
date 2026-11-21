@@ -84,6 +84,8 @@ struct HarnessDiagJson {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     caminhos_indicativos: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    erro: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     sincronizado: Option<bool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     itens: Vec<ItemSyncJson>,
@@ -101,11 +103,7 @@ struct DiagnosticoJson {
 }
 
 /// Executa o subcomando `diagnostico`, sempre retornando sucesso após inspecionar o ambiente.
-pub fn executar(
-    opcoes: &OpcoesDiagnostico,
-    json: bool,
-    nivel_verbose: u8,
-) -> anyhow::Result<()> {
+pub fn executar(opcoes: &OpcoesDiagnostico, json: bool, nivel_verbose: u8) -> anyhow::Result<()> {
     let env_home = ler_env("HOME");
     let env_xdg = ler_env("XDG_CONFIG_HOME");
     let env_hermes = ler_env("HERMES_HOME");
@@ -198,26 +196,35 @@ fn enriquecer_harness(
 ) -> HarnessDiagJson {
     let mut sincronizado = None;
     let mut itens = Vec::new();
+    let mut erro = item.erro_destino;
 
     if item.harness == Harness::Hermes
+        && erro.is_none()
         && let Some(def) = definicao
-        && let Ok(config) =
-            ConfiguracaoHermes::resolver(opcoes.destino.as_deref(), opcoes.perfil.as_deref())
     {
-        let adaptador = AdaptadorHermes::new(config);
-        if let Ok(desejados) = adaptador.planejar_arquivos(def)
-            && let Ok(verif) = verificar(&desejados, &adaptador.arquivo_estado())
-        {
-            sincronizado = Some(verif.sincronizado);
-            itens = verif
-                .itens
-                .into_iter()
-                .map(|it| ItemSyncJson {
-                    caminho: it.caminho.display().to_string(),
-                    sincronizado: it.sincronizado,
-                    detalhe: it.detalhe,
-                })
-                .collect();
+        match ConfiguracaoHermes::resolver(opcoes.destino.as_deref(), opcoes.perfil.as_deref()) {
+            Ok(config) => {
+                let adaptador = AdaptadorHermes::new(config);
+                match adaptador.planejar_arquivos(def) {
+                    Ok(desejados) => match verificar(&desejados, &adaptador.arquivo_estado()) {
+                        Ok(verif) => {
+                            sincronizado = Some(verif.sincronizado);
+                            itens = verif
+                                .itens
+                                .into_iter()
+                                .map(|it| ItemSyncJson {
+                                    caminho: it.caminho.display().to_string(),
+                                    sincronizado: it.sincronizado,
+                                    detalhe: it.detalhe,
+                                })
+                                .collect();
+                        }
+                        Err(e) => erro = Some(e.to_string()),
+                    },
+                    Err(e) => erro = Some(e.to_string()),
+                }
+            }
+            Err(e) => erro = Some(e.to_string()),
         }
     }
 
@@ -234,6 +241,7 @@ fn enriquecer_harness(
             .into_iter()
             .map(|p| p.display().to_string())
             .collect(),
+        erro,
         sincronizado,
         itens,
     }
@@ -256,6 +264,11 @@ fn definir_proximo_passo(
     }
 
     if let Some(hermes) = harnesses.iter().find(|h| h.id == "hermes") {
+        if let Some(err) = hermes.erro.as_deref() {
+            return format!(
+                "Corrija o erro na inspeção do `hermes` ({err}) e rode `sexta-feira diagnostico` novamente."
+            );
+        }
         return match hermes.sincronizado {
             Some(true) => "Setup do `hermes` já está sincronizado.".to_owned(),
             Some(false) => {
@@ -274,11 +287,18 @@ fn definir_proximo_passo(
 }
 
 fn imprimir_texto(saida: &mut impl Write, rel: &DiagnosticoJson) -> anyhow::Result<()> {
-    writeln!(saida, "Diagnóstico Sexta-feira v{} ({})", rel.versao, rel.plataforma)?;
+    writeln!(
+        saida,
+        "Diagnóstico Sexta-feira v{} ({})",
+        rel.versao, rel.plataforma
+    )?;
     writeln!(
         saida,
         "Ambiente: HOME={} | XDG_CONFIG_HOME={} | HERMES_HOME={} | SEXTA_FEIRA_LOG={}",
-        rel.variaveis_ambiente.home.as_deref().unwrap_or("<ausente>"),
+        rel.variaveis_ambiente
+            .home
+            .as_deref()
+            .unwrap_or("<ausente>"),
         rel.variaveis_ambiente
             .xdg_config_home
             .as_deref()
@@ -295,7 +315,10 @@ fn imprimir_texto(saida: &mut impl Write, rel: &DiagnosticoJson) -> anyhow::Resu
     writeln!(
         saida,
         "Configuração: {}",
-        rel.configuracao.diretorio.as_deref().unwrap_or("<indisponível>")
+        rel.configuracao
+            .diretorio
+            .as_deref()
+            .unwrap_or("<indisponível>")
     )?;
     for camada in &rel.configuracao.camadas {
         let origem = match camada.origem {
@@ -311,7 +334,11 @@ fn imprimir_texto(saida: &mut impl Write, rel: &DiagnosticoJson) -> anyhow::Resu
             .caminho
             .as_ref()
             .map_or_else(|| "<embutido>".to_owned(), |p| p.display().to_string());
-        writeln!(saida, "  - [{}] {origem} ({status}): {caminho}", camada.secao)?;
+        writeln!(
+            saida,
+            "  - [{}] {origem} ({status}): {caminho}",
+            camada.secao
+        )?;
     }
 
     if rel.definicao.valida {
@@ -330,15 +357,36 @@ fn imprimir_texto(saida: &mut impl Write, rel: &DiagnosticoJson) -> anyhow::Resu
         )?;
     }
 
+    imprimir_harnesses_texto(saida, &rel.harnesses, rel.definicao.valida)?;
+
+    writeln!(saida, "Próximo passo: {}", rel.proximo_passo)?;
+    Ok(())
+}
+
+fn imprimir_harnesses_texto(
+    saida: &mut impl Write,
+    harnesses: &[HarnessDiagJson],
+    definicao_valida: bool,
+) -> anyhow::Result<()> {
     writeln!(saida, "Harnesses:")?;
-    for h in &rel.harnesses {
-        let sync = match h.sincronizado {
-            Some(true) => "sincronizado",
-            Some(false) => "pendente/divergente",
-            None if h.disponivel => "destino indisponível",
-            None => "sem adapter",
+    for h in harnesses {
+        let sync = match (
+            h.sincronizado,
+            h.erro.as_deref(),
+            h.disponivel,
+            definicao_valida,
+        ) {
+            (Some(true), _, _, _) => "sincronizado",
+            (Some(false), _, _, _) => "pendente/divergente",
+            (None, Some(_), _, _) => "erro na inspeção",
+            (None, None, true, false) => "não verificado (definição inválida)",
+            (None, None, true, true) => "destino indisponível",
+            (None, None, false, _) => "sem adapter",
         };
         writeln!(saida, "  - {} [{} | {sync}]", h.id, h.status)?;
+        if let Some(err) = h.erro.as_deref() {
+            writeln!(saida, "      erro: {err}")?;
+        }
         if let Some(perfil) = &h.diretorio_perfil {
             writeln!(
                 saida,
@@ -355,8 +403,6 @@ fn imprimir_texto(saida: &mut impl Write, rel: &DiagnosticoJson) -> anyhow::Resu
             )?;
         }
     }
-
-    writeln!(saida, "Próximo passo: {}", rel.proximo_passo)?;
     Ok(())
 }
 

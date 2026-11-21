@@ -104,7 +104,10 @@ impl ConfiguracaoHermes {
             if caminho.as_os_str().is_empty() {
                 return Err(ErroDeHermes::HermesHomeVazio);
             }
-            (expandir_til(caminho, env_home)?, OrigemResolucaoDestino::Explicito)
+            (
+                expandir_til(caminho, env_home)?,
+                OrigemResolucaoDestino::Explicito,
+            )
         } else if let Some(caminho) = env_hermes_home.map(str::trim).filter(|s| !s.is_empty()) {
             (
                 expandir_til(Path::new(caminho), env_home)?,

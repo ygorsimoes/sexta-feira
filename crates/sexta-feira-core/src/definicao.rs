@@ -543,7 +543,11 @@ mod tests {
     #[test]
     fn inspecionar_camadas_reflete_ordem_e_status_sem_conhecer_harnesses() {
         let dir = DirTemporario::novo("camadas-info");
-        fs::write(dir.path().join("usuario.toml"), "tratamento = \"capitão\"\n").expect("grava");
+        fs::write(
+            dir.path().join("usuario.toml"),
+            "tratamento = \"capitão\"\n",
+        )
+        .expect("grava");
         let explicito = dir.path().join("persona-extra.toml");
         fs::write(&explicito, "nome = \"Sexta\"\n").expect("grava");
 

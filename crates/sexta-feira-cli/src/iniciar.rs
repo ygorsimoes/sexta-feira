@@ -230,6 +230,15 @@ fn processar_usuario_toml(
 
     match toml::from_str::<UsuarioParcial>(&conteudo_atual) {
         Ok(existente) => {
+            if let Err(motivo_invalido) = validar_parcial_existente(&existente) {
+                return regenerar_arquivo_invalido(
+                    opcoes,
+                    usuario_path,
+                    interativo,
+                    motivo_invalido,
+                );
+            }
+
             let candidato = if interativo {
                 coletar_interativo(opcoes, Some(&existente))?
             } else {
@@ -252,43 +261,77 @@ fn processar_usuario_toml(
             Ok((AcaoConfig::Atualizado, Some(backup)))
         }
         Err(err_parse) => {
-            let candidato = if interativo {
-                eprintln!(
-                    "Aviso: `{}` atual contém erro ({err_parse}) e será regenerado se você confirmar.",
-                    usuario_path.display()
-                );
-                coletar_interativo(opcoes, None)?
-            } else {
-                montar_novo_nao_interativo(opcoes)
-            };
-            let toml_novo = serializar_e_validar(&candidato)?;
-
-            if !opcoes.sobrescrever {
-                if interativo {
-                    let confirmou = confirmar_tty(&format!(
-                        "Sobrescrever `{}` inválido gerando backup `.bak`? [s/N]: ",
-                        usuario_path.display()
-                    ))?;
-                    if !confirmou {
-                        bail!(
-                            "`{}` está inválido ({err_parse}); corrija o arquivo ou autorize `--sobrescrever`",
-                            usuario_path.display()
-                        );
-                    }
-                } else {
-                    bail!(
-                        "`{}` existente está inválido ({err_parse}); passe `--sobrescrever` para regenerar gerando backup `.bak`",
-                        usuario_path.display()
-                    );
-                }
-            }
-
-            let backup = criar_backup_numerado(usuario_path)?;
-            fs::write(usuario_path, toml_novo)
-                .with_context(|| format!("não foi possível gravar `{}`", usuario_path.display()))?;
-            Ok((AcaoConfig::Atualizado, Some(backup)))
+            regenerar_arquivo_invalido(opcoes, usuario_path, interativo, &err_parse.to_string())
         }
     }
+}
+
+fn validar_parcial_existente(parcial: &UsuarioParcial) -> Result<(), &'static str> {
+    if parcial
+        .tratamento
+        .as_deref()
+        .is_some_and(|s| s.trim().is_empty())
+    {
+        return Err("campo `tratamento` não pode ser vazio");
+    }
+    if parcial
+        .idioma
+        .as_deref()
+        .is_some_and(|s| s.trim().is_empty())
+    {
+        return Err("campo `idioma` não pode ser vazio");
+    }
+    if parcial
+        .preferencias
+        .as_ref()
+        .is_some_and(|itens| itens.is_empty() || itens.iter().any(|s| s.trim().is_empty()))
+    {
+        return Err("lista `preferencias` não pode ser vazia ou conter item em branco");
+    }
+    Ok(())
+}
+
+fn regenerar_arquivo_invalido(
+    opcoes: &OpcoesIniciar,
+    usuario_path: &Path,
+    interativo: bool,
+    detalhe_erro: &str,
+) -> anyhow::Result<(AcaoConfig, Option<PathBuf>)> {
+    let candidato = if interativo {
+        eprintln!(
+            "Aviso: `{}` atual contém erro ({detalhe_erro}) e será regenerado se você confirmar.",
+            usuario_path.display()
+        );
+        coletar_interativo(opcoes, None)?
+    } else {
+        montar_novo_nao_interativo(opcoes)
+    };
+    let toml_novo = serializar_e_validar(&candidato)?;
+
+    if !opcoes.sobrescrever {
+        if interativo {
+            let confirmou = confirmar_tty(&format!(
+                "Sobrescrever `{}` inválido gerando backup `.bak`? [s/N]: ",
+                usuario_path.display()
+            ))?;
+            if !confirmou {
+                bail!(
+                    "`{}` está inválido ({detalhe_erro}); corrija o arquivo ou autorize `--sobrescrever`",
+                    usuario_path.display()
+                );
+            }
+        } else {
+            bail!(
+                "`{}` existente está inválido ({detalhe_erro}); passe `--sobrescrever` para regenerar gerando backup `.bak`",
+                usuario_path.display()
+            );
+        }
+    }
+
+    let backup = criar_backup_numerado(usuario_path)?;
+    fs::write(usuario_path, toml_novo)
+        .with_context(|| format!("não foi possível gravar `{}`", usuario_path.display()))?;
+    Ok((AcaoConfig::Atualizado, Some(backup)))
 }
 
 fn montar_novo_nao_interativo(opcoes: &OpcoesIniciar) -> UsuarioParcial {

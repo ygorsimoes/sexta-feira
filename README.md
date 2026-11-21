@@ -107,7 +107,7 @@ O binário embute [recursos/mordomo/persona.toml](recursos/mordomo/persona.toml)
    ]
    ```
 
-2. **Camada por execução (explícita):** passe `--persona <arquivo.toml>` e/ou `--usuario <arquivo.toml>` para `plano`, `aplicar` ou `verificar`.
+2. **Camada por execução (explícita):** passe `--persona <arquivo.toml>` e/ou `--usuario <arquivo.toml>` para `diagnostico`, `plano`, `aplicar` ou `verificar`.
 
 Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas são rejeitadas na leitura para evitar erros silenciosos de digitação.
 
@@ -117,7 +117,7 @@ Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas s�
 
 | Comando / Opção | O que faz |
 |---|---|
-| `sexta-feira iniciar` | Guia a criação/atualização segura de `usuario.toml` (interativo ou `--nao-interativo`) |
+| `sexta-feira iniciar` | Guia a criação/atualização segura de `usuario.toml` (interativo ou `--nao-interativo`, `--tratamento`, `--preferencia`, `--sobrescrever`) |
 | `sexta-feira diagnostico [harness]` | Inspeciona ambiente, camadas de configuração, harnesses e próximo passo recomendado |
 | `sexta-feira harnesses` | Lista todos os harnesses previstos com status (`disponível` / `em breve`) |
 | `sexta-feira plano <harness>` | Exibe ações (`CRIAR`, `ATUALIZAR`, `OK`, `REMOVER`, `CONFLITO`) e diff sem escrever no disco |

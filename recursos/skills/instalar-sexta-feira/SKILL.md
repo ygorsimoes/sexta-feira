@@ -22,7 +22,7 @@ Colete apenas o necessário para decidir os próximos passos:
 
 1. **Sistema e arquitetura:** execute `uname -s` e `uname -m`.
 2. **Ferramentas disponíveis:** verifique `which sexta-feira`, `curl`, `tar`, `sha256sum` ou `shasum`, `git`, `cargo` e `rustup`.
-3. **Repositório local:** verifique se o diretório atual já é um clone de `sexta-feira` (possui `Cargo.toml` com `sexta-feira-cli` e `recursos/mordomo/`).
+3. **Repositório local:** verifique se o diretório atual já é um clone de `sexta-feira` (possui `Cargo.toml` na raiz, `crates/sexta-feira-cli/Cargo.toml` e `recursos/mordomo/`).
 4. **Harness atual:** identifique em qual harness você está executando agora (ex.: Hermes Agent, OpenClaw, Claude Code, Claude Desktop, OpenCode ou outro) e localize seus diretórios/arquivos de configuração reais no ambiente (ex.: `$HERMES_HOME` ou `~/.hermes` no Hermes; `~/.claude` ou `CLAUDE.md` no Claude Code; `AGENTS.md` / configurações locais em outros harnesses).
 
 ---
@@ -41,7 +41,7 @@ Tente, nesta ordem, disponibilizar um comando `sexta-feira` executável:
    - Consulte a última release em `https://api.github.com/repos/ygorsimoes/sexta-feira/releases/latest` (ou via `gh release`).
    - Baixe o `.tar.gz` correspondente **e** `SHA256SUMS.txt`.
    - **Obrigatório:** valide o checksum com `sha256sum -c` (Linux) ou `shasum -a 256 -c` (macOS) filtrando pelo arquivo baixado antes de extrair. Se o hash **divergir**, aborte imediatamente e avise o usuário. Se `SHA256SUMS.txt` ou a ferramenta de checksum estiver indisponível, não extraia às cegas: tente o item 4 (compilação), siga para o item 5 (fallback) ou peça consentimento explícito explicando o risco.
-   - Extraia o binário `sexta-feira` e instale em um diretório do `PATH` do usuário (ex.: `~/.local/bin/sexta-feira`). Se precisar criar o diretório ou ajustar o `PATH` do shell, confirme antes com o usuário.
+   - Extraia em um diretório temporário (`mktemp -d`) e mova apenas o binário `sexta-feira` para um diretório do `PATH` do usuário (ex.: `~/.local/bin/sexta-feira`), evitando copiar `README.md` e `LICENSE` do pacote. Se precisar criar o diretório ou ajustar o `PATH` do shell, confirme antes com o usuário.
 4. **Compilação alternativa via código-fonte:** se a arquitetura/SO não tiver binário pré-compilado (por exemplo, macOS Intel) **ou se não for possível baixar/verificar o pacote de Release**, mas `git` e `cargo`/`rustup` estiverem instalados, ofereça clonar o repositório e rodar `cargo build --release --package sexta-feira-cli`.
 5. **CLI indisponível ou recusada:** se o ambiente não tiver acesso a Releases/Cargo, se a compilação falhar (ex.: `rustc` incompatível com `rust-toolchain.toml` sem `rustup`/rede), se o sistema não executar o binário ou se o usuário preferir não baixar/compilar a CLI agora, registre o motivo claramente e pule o Passo 3 seguindo para o **Passo 4** e depois **Passo 5B (Fallback assistido)**.
 
@@ -112,10 +112,12 @@ Quando o harness atual tiver adapter oficial (ex.: `hermes`):
 
 ## Passo 5B — Fallback assistido pelo agente (sem adapter na CLI ou sem CLI)
 
-Use este caminho quando `sexta-feira --json harnesses` mostrar `"disponivel": false` para o harness atual, quando o harness não estiver na lista ou quando a CLI não puder ser instalada/executada no ambiente:
+Use este caminho quando `sexta-feira --json diagnostico` (ou `harnesses`) mostrar `"disponivel": false` para o harness atual, quando o harness não estiver na lista ou quando a CLI não puder ser instalada/executada no ambiente:
 
-1. **Aviso explícito obrigatório:** informe claramente ao usuário:
-   > A CLI `sexta-feira` ainda não possui suporte/adapter oficial para `<nome-do-harness>` (ou não pôde ser executada neste ambiente). Se você concordar, posso tentar fazer uma **instalação assistida** lendo os recursos da Sexta-feira e adaptando diretamente para o formato deste harness.
+1. **Aviso explícito obrigatório:** informe claramente o cenário ao usuário:
+   - Se o harness ainda não tem adapter na CLI (`"disponivel": false` ou fora do catálogo):
+     > A CLI `sexta-feira` ainda não possui suporte/adapter oficial para `<nome-do-harness>`. Se você concordar, posso tentar fazer uma **instalação assistida** lendo os recursos da Sexta-feira e adaptando diretamente para o formato deste harness.
+   - Se a CLI falhou/não pôde ser obtida mesmo para um harness suportado (ex.: Hermes sem acesso a Releases/Cargo): explique o motivo específico e pergunte se deseja que você faça a aplicação assistida diretamente (no caso do Hermes, mirando `$HERMES_HOME/profiles/sexta-feira/`).
    Aguarde o "sim" do usuário antes de alterar arquivos do harness.
 2. **Ler a definição única do mordomo:**
    - Leia `recursos/mordomo/persona.toml` e `recursos/mordomo/usuario.toml` do repositório local, ou diretamente das URLs oficiais:
@@ -123,7 +125,7 @@ Use este caminho quando `sexta-feira --json harnesses` mostrar `"disponivel": fa
      - `https://raw.githubusercontent.com/ygorsimoes/sexta-feira/main/recursos/mordomo/usuario.toml`
    - Se existirem `persona.toml` ou `usuario.toml` em `<dir-config>` (`${XDG_CONFIG_HOME:-~/.config}/sexta-feira/`), aplique seus campos sobre o padrão (listas sobrescrevem a lista base; campos omitidos herdam o padrão).
 3. **Mapear para as convenções reais do harness:**
-   - Descubra onde este harness armazena instruções/persona e perfil/memórias do usuário (por exemplo: `CLAUDE.md` no projeto ou em `~/.claude/CLAUDE.md` no Claude Code; `AGENTS.md` / configuração do projeto no OpenCode ou OpenClaw; instruções de projeto no Claude Desktop; regras ou instruções equivalentes no harness atual).
+   - Descubra onde este harness armazena instruções/persona e perfil/memórias pessoais do usuário — dando preferência a escopo pessoal/global (ex.: `~/.claude/CLAUDE.md` no Claude Code) em vez de alterar `CLAUDE.md`/`AGENTS.md` compartilhados de um repositório Git sem confirmação explícita; no Claude Desktop ou interfaces sem arquivo gravável, entregue o bloco Markdown pronto para colar nas instruções do projeto.
    - Traduza os campos (`nome`, `arquetipo`, `idioma`, `resumo`, `tom`, `diretrizes`, `limites`, `tratamento`, `preferencias`) em Markdown limpo, fiel ao tom formal J.A.R.V.I.S. em `pt-BR`.
 4. **Aplicar com segurança:**
    - Mostre antes ao usuário **quais arquivos** pretende criar ou editar e um resumo do conteúdo.

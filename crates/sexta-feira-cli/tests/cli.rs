@@ -436,3 +436,94 @@ fn plano_aplicar_e_erros_exibem_dicas_acionaveis() {
     assert!(stderr_toml.contains("tratamento"));
     assert!(stderr_toml.contains("diagnostico"));
 }
+
+#[test]
+fn diagnostico_em_json_e_texto_cobre_ambiente_config_invalida_e_harnesses() {
+    let dir = DirTemporario::novo("diagnostico");
+    let home = dir.path().join("home");
+    let xdg = dir.path().join("xdg");
+    let destino = dir.path().join("hermes");
+    fs::create_dir_all(home.join(".claude")).expect("cria .claude");
+    fs::create_dir_all(xdg.join("sexta-feira")).expect("cria xdg");
+
+    let home_str = home.display().to_string();
+    let xdg_str = xdg.display().to_string();
+    let destino_str = destino.display().to_string();
+
+    // 1. Setup ainda não aplicado -> exit 0, JSON estruturado completo
+    let diag_inicial = comando_cli()
+        .env("HOME", &home_str)
+        .env("XDG_CONFIG_HOME", &xdg_str)
+        .args(["--json", "diagnostico", "--destino", &destino_str])
+        .assert()
+        .success();
+    let json_inicial: serde_json::Value =
+        serde_json::from_slice(&diag_inicial.get_output().stdout).expect("JSON diagnóstico");
+    assert!(json_inicial["versao"].is_string());
+    assert!(json_inicial["plataforma"].is_string());
+    assert!(json_inicial["configuracao"]["diretorio"].is_string());
+    assert_eq!(json_inicial["definicao"]["valida"], true);
+    assert_eq!(json_inicial["harnesses"][0]["id"], "hermes");
+    assert_eq!(json_inicial["harnesses"][0]["sincronizado"], false);
+    assert!(
+        json_inicial["proximo_passo"]
+            .as_str()
+            .expect("proximo_passo")
+            .contains("aplicar")
+    );
+
+    // 2. usuario.toml inválido -> exit 0, definicao.valida == false, continua inspecionando
+    fs::write(xdg.join("sexta-feira/usuario.toml"), "chave_invalida = 1\n")
+        .expect("grava toml inválido");
+    let diag_invalido_json = comando_cli()
+        .env("HOME", &home_str)
+        .env("XDG_CONFIG_HOME", &xdg_str)
+        .args(["--json", "diagnostico", "--destino", &destino_str])
+        .assert()
+        .success();
+    let json_inv: serde_json::Value =
+        serde_json::from_slice(&diag_invalido_json.get_output().stdout).expect("JSON inválido");
+    assert_eq!(json_inv["definicao"]["valida"], false);
+    assert!(json_inv["definicao"]["erro"].as_str().is_some());
+
+    let diag_invalido_txt = comando_cli()
+        .env("HOME", &home_str)
+        .env("XDG_CONFIG_HOME", &xdg_str)
+        .args(["diagnostico", "--destino", &destino_str])
+        .assert()
+        .success();
+    let txt_inv = String::from_utf8(diag_invalido_txt.get_output().stdout.clone()).expect("UTF-8");
+    assert!(txt_inv.contains("inválida"));
+    assert!(txt_inv.contains("hermes"));
+
+    // 3. Corrige config, aplica no Hermes e filtra `diagnostico hermes`
+    fs::write(
+        xdg.join("sexta-feira/usuario.toml"),
+        "tratamento = \"comandante\"\n",
+    )
+    .expect("grava usuario válido");
+    let _ = comando_cli()
+        .env("HOME", &home_str)
+        .env("XDG_CONFIG_HOME", &xdg_str)
+        .args(["aplicar", "hermes", "--destino", &destino_str])
+        .assert()
+        .success();
+
+    let diag_hermes = comando_cli()
+        .env("HOME", &home_str)
+        .env("XDG_CONFIG_HOME", &xdg_str)
+        .args(["--json", "diagnostico", "hermes", "--destino", &destino_str])
+        .assert()
+        .success();
+    let json_hermes: serde_json::Value =
+        serde_json::from_slice(&diag_hermes.get_output().stdout).expect("JSON hermes");
+    assert_eq!(json_hermes["harnesses"].as_array().expect("arr").len(), 1);
+    assert_eq!(json_hermes["harnesses"][0]["id"], "hermes");
+    assert_eq!(json_hermes["harnesses"][0]["sincronizado"], true);
+    assert!(
+        json_hermes["proximo_passo"]
+            .as_str()
+            .expect("proximo_passo")
+            .contains("sincronizado")
+    );
+}

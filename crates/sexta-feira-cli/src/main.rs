@@ -1,5 +1,6 @@
 //! CLI da Sexta-feira.
 
+mod diagnostico;
 mod verbose;
 
 use std::io::Write;
@@ -18,6 +19,7 @@ use sexta_feira_core::{
 
 const AJUDA_RAIZ: &str = "\
 Exemplos:
+  sexta-feira diagnostico
   sexta-feira harnesses
   sexta-feira plano hermes
   sexta-feira aplicar hermes
@@ -42,6 +44,9 @@ struct Cli {
 enum Comando {
     /// Lista os harnesses previstos.
     Harnesses,
+    /// Inspeciona ambiente, camadas de configuração e harnesses.
+    #[command(after_help = "Exemplo: sexta-feira diagnostico --json")]
+    Diagnostico(diagnostico::OpcoesDiagnostico),
     /// Exibe o plano de mudanças sem alterar o disco.
     #[command(after_help = "Exemplo: sexta-feira plano hermes --perfil sexta-feira")]
     Plano(OpcoesAlvo),
@@ -183,6 +188,11 @@ fn executar(cli: Cli) -> anyhow::Result<()> {
             verbose::emitir_ambiente(nivel_verbose, "harnesses");
             tracing::debug!(json, "executando subcomando harnesses");
             listar_harnesses(json)?;
+        }
+        Comando::Diagnostico(opcoes) => {
+            verbose::emitir_ambiente(nivel_verbose, "diagnostico");
+            tracing::debug!(harness = ?opcoes.harness, json, "executando subcomando diagnostico");
+            diagnostico::executar(&opcoes, json, nivel_verbose)?;
         }
         Comando::Plano(alvo) => {
             verbose::emitir_ambiente(nivel_verbose, "plano");
@@ -541,7 +551,10 @@ fn sugerir_dica(erro: &anyhow::Error) -> Option<&'static str> {
     None
 }
 
-fn escrever_json<T: Serialize + ?Sized>(saida: &mut impl Write, valor: &T) -> anyhow::Result<()> {
+pub(crate) fn escrever_json<T: Serialize + ?Sized>(
+    saida: &mut impl Write,
+    valor: &T,
+) -> anyhow::Result<()> {
     serde_json::to_writer_pretty(&mut *saida, valor)?;
     writeln!(saida)?;
     Ok(())

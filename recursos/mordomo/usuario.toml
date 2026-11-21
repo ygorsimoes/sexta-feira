@@ -1,7 +1,6 @@
 tratamento = "senhor"
 idioma = "pt-BR"
 preferencias = [
-  "Dirigir-se sempre ao usuário como \"senhor\"",
-  "Responder em português do Brasil (pt-BR), com estrutura clara e concisa",
+  "Estruturar respostas de forma clara, direta e concisa",
   "Priorizar decisões práticas e bem fundamentadas, destacando riscos reais",
 ]

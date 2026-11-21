@@ -8,7 +8,9 @@ pub mod definicao;
 pub mod plano;
 
 pub use adaptador::{AdaptadorDeSetup, ErroDeAdaptador};
-pub use definicao::{DefinicaoDoMordomo, ErroDeDefinicao, PerfilDoUsuario, Persona};
+pub use definicao::{
+    DefinicaoDoMordomo, ErroDeDefinicao, FontesDaDefinicao, PerfilDoUsuario, Persona,
+};
 pub use plano::{
     AcaoPlanejada, ArquivoDesejado, ErroDePlano, EstrategiaDeEscrita, ItemDeVerificacao,
     OperacaoPlanejada, PlanoDeSetup, ResultadoDaAplicacao, ResultadoDaVerificacao, aplicar,

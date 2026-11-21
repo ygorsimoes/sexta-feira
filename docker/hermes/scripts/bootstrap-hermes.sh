@@ -79,35 +79,41 @@ PY
         echo "[bootstrap] config.yaml de $rotulo já existe; preservado."
     fi
 
-    if [ ! -f "$env_arq" ] || [ ! -f "$marcador" ] || [ "$RECONFIGURAR" -eq 1 ]; then
-        "$PYTHON_BIN" - "$env_arq" <<'PY'
+    "$PYTHON_BIN" - "$env_arq" <<'PY'
 import os
 import sys
 
 env_path = sys.argv[1]
 api_key = os.environ["OPENROUTER_API_KEY"]
+target_line = f"OPENROUTER_API_KEY={api_key}\n"
 lines = []
 found = False
+changed = not os.path.exists(env_path)
 
 if os.path.exists(env_path):
     with open(env_path, "r", encoding="utf-8") as fh:
         for line in fh:
             if line.startswith("OPENROUTER_API_KEY="):
-                lines.append(f"OPENROUTER_API_KEY={api_key}\n")
+                if line != target_line:
+                    changed = True
+                lines.append(target_line)
                 found = True
             else:
                 lines.append(line)
 
 if not found:
-    lines.append(f"OPENROUTER_API_KEY={api_key}\n")
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines.append(target_line)
+    changed = True
 
-tmp_path = f"{env_path}.tmp"
-with open(tmp_path, "w", encoding="utf-8") as fh:
-    fh.writelines(lines)
-os.chmod(tmp_path, 0o600)
-os.replace(tmp_path, env_path)
+if changed:
+    tmp_path = f"{env_path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        fh.writelines(lines)
+    os.chmod(tmp_path, 0o600)
+    os.replace(tmp_path, env_path)
 PY
-    fi
 
     : > "$marcador"
 }

@@ -3,7 +3,7 @@
 use std::io::Write;
 
 use clap::{Parser, Subcommand};
-use sexta_feira_core::Harness;
+use sexta_feira_adapters::Harness;
 use tracing_subscriber::EnvFilter;
 
 /// Sexta-feira: setup e motor do seu mordomo virtual.

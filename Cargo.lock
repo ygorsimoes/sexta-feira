@@ -406,7 +406,9 @@ dependencies = [
 name = "sexta-feira-adapters"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "sexta-feira-core",
+ "thiserror",
 ]
 
 [[package]]

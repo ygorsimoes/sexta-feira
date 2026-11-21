@@ -1,6 +1,8 @@
 //! Adapters da Sexta-feira.
 //!
-//! Cada adapter traduz o motor (`sexta-feira-core`) para um harness. Ainda não
-//! há nenhum adapter implementado; o primeiro será o do Hermes.
+//! Cada adapter traduz o modelo agnóstico (`sexta-feira-core`) para os arquivos
+//! e convenções de um harness específico.
 
-pub use sexta_feira_core::Harness;
+pub mod catalogo;
+
+pub use catalogo::{Harness, HarnessDesconhecido};

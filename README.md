@@ -59,21 +59,24 @@ Leia https://raw.githubusercontent.com/ygorsimoes/sexta-feira/main/recursos/skil
 > # binário gerado em ./target/release/sexta-feira
 > ```
 
-#### 2. Aplique o setup em 4 passos
+#### 2. Configure e aplique o setup
 
 Se estiver rodando direto do repositório sem instalar, substitua `sexta-feira` por `cargo run -q -p sexta-feira-cli --`.
 
 ```bash
-# 1. Veja os harnesses disponíveis e em desenvolvimento
-sexta-feira harnesses
+# 1. (Opcional) Inspecione ambiente, camadas de config e harnesses disponíveis
+sexta-feira diagnostico
 
-# 2. Pré-visualize o plano e o diff sem alterar nada em disco
+# 2. (Opcional) Configure tratamento e preferências de forma guiada
+sexta-feira iniciar
+
+# 3. Pré-visualize o plano e o diff sem alterar nada em disco
 sexta-feira plano hermes
 
-# 3. Aplique o perfil isolado `sexta-feira` no Hermes
+# 4. Aplique o perfil isolado `sexta-feira` no Hermes
 sexta-feira aplicar hermes
 
-# 4. Confirme que tudo está sincronizado (exit 0 quando OK)
+# 5. Confirme que tudo está sincronizado (exit 0 quando OK)
 sexta-feira verificar hermes
 ```
 
@@ -114,6 +117,8 @@ Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas s�
 
 | Comando / Opção | O que faz |
 |---|---|
+| `sexta-feira iniciar` | Guia a criação/atualização segura de `usuario.toml` (interativo ou `--nao-interativo`) |
+| `sexta-feira diagnostico [harness]` | Inspeciona ambiente, camadas de configuração, harnesses e próximo passo recomendado |
 | `sexta-feira harnesses` | Lista todos os harnesses previstos com status (`disponível` / `em breve`) |
 | `sexta-feira plano <harness>` | Exibe ações (`CRIAR`, `ATUALIZAR`, `OK`, `REMOVER`, `CONFLITO`) e diff sem escrever no disco |
 | `sexta-feira aplicar <harness>` | Aplica o plano; falha antes de gravar se houver conflito sem `--forcar` |
@@ -122,8 +127,9 @@ Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas s�
 | `--perfil <nome>` | Escolhe o nome do perfil isolado no harness (padrão: `sexta-feira`) |
 | `--persona <arq>` / `--usuario <arq>` | Sobrescreve persona ou perfil do usuário a partir de arquivos TOML |
 | `--forcar` | Em `aplicar`, sobrescreve ou remove itens em conflito gerando backup `.bak` numerado |
+| `-v` / `--verbose` (`-vv`, `-vvv`) | Emite contexto detalhado em `stderr` (camadas, destino, estratégias, métricas e `tracing`) sem sujar `--json` |
 | `--json` | Flag global para saída estruturada em JSON (`stdout`) em qualquer subcomando |
-| `SEXTA_FEIRA_LOG=debug` | Ativa logs diagnósticos detalhados em `stderr` (padrão silencioso em `warn`) |
+| `SEXTA_FEIRA_LOG=debug` | Sobrescreve o nível do `tracing` em `stderr` (quando não definida, segue `-v`) |
 
 ---
 

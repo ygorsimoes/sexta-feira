@@ -47,15 +47,17 @@ Tente, nesta ordem, disponibilizar um comando `sexta-feira` executável:
 
 ---
 
-## Passo 3 — Verificar suporte do harness na CLI
+## Passo 3 — Verificar suporte do harness e diagnosticar ambiente na CLI
 
-Se a CLI estiver disponível, execute:
+Se a CLI estiver disponível, execute o diagnóstico completo (ou `harnesses`):
 
 ```bash
-sexta-feira --json harnesses
+sexta-feira --json diagnostico
 ```
 
-Interprete o JSON retornado (`id`, `disponivel`, `status`):
+Você também pode combinar `--json` com `-v` ou `-vv` em qualquer comando para receber contexto rico em `stderr` (camadas de configuração, destino resolvido, estratégias e métricas) sem poluir o JSON de `stdout`.
+
+Interprete os campos de `harnesses` (`id`, `disponivel`, `status`, `sincronizado`) e `definicao`:
 
 - Se o harness atual corresponder a um item com `"disponivel": true`, siga pelo **Passo 5A** após a personalização.
 - Se aparecer com `"disponivel": false` (status `"em breve"`) ou se o harness atual nem estiver listado no catálogo, você seguirá pelo **Passo 5B** após a personalização.
@@ -75,7 +77,7 @@ Antes de aplicar:
 2. Faça **uma pergunta curta e prática** ao usuário para confirmar ou ajustar o básico em `usuario.toml`:
    - Forma de tratamento desejada (`tratamento`, padrão `"senhor"` — ex.: `"senhor"`, nome próprio, etc.);
    - Preferências pessoais específicas para definir em `preferencias` (ou manter o padrão).
-3. Se o usuário quiser personalizar, crie ou atualize `<dir-config>/usuario.toml` (e/ou `persona.toml`) observando estas regras rígidas do motor:
+3. Se o usuário quiser personalizar e a CLI estiver disponível, prefira usar `sexta-feira iniciar --nao-interativo --tratamento "<valor>"` (com `--sobrescrever` se o arquivo já existir e houver mudanças; gera `.bak` e valida em memória antes de gravar). Se estiver editando `<dir-config>/usuario.toml` ou `persona.toml` diretamente, observe estas regras rígidas do motor:
    - **Sem chaves desconhecidas:** `#[serde(deny_unknown_fields)]` rejeita qualquer chave fora de:
      - **`usuario.toml`**: `tratamento` (string), `idioma` (string, ex.: `"pt-BR"`), `preferencias` (lista de strings).
      - **`persona.toml`**: `nome` (string), `arquetipo` (string), `idioma` (string), `resumo` (string), `tom` (lista de strings), `diretrizes` (lista de strings), `limites` (lista de strings).
@@ -90,9 +92,9 @@ Quando o harness atual tiver adapter oficial (ex.: `hermes`):
 
 1. **Definir alvo:**
    - Verifique o diretório base (`--destino`, ou `$HERMES_HOME` / `~/.hermes` no Hermes) e confirme se o usuário quer usar o perfil isolado padrão (`sexta-feira`) ou informar `--perfil <nome>`.
-2. **Pré-visualizar o plano:**
+2. **Pré-visualizar o plano (use `-v` / `-vv` se precisar inspecionar camadas e estratégias em `stderr`):**
    ```bash
-   sexta-feira --json plano <harness> [--destino <dir>] [--perfil <nome>]
+   sexta-feira --json -v plano <harness> [--destino <dir>] [--perfil <nome>]
    ```
    Apresente ao usuário quais arquivos serão criados/atualizados/removidos.
 3. **Tratar conflitos com segurança:**

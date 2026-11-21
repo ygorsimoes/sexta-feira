@@ -91,4 +91,4 @@ Outros blocos (memória persistente, canais como Telegram, scripts de apoio, int
 ## 7. Questões em aberto
 
 - Validar na documentação dos demais harnesses (`OpenClaw`, `Claude Code`, `Claude Desktop/.ai`, `OpenCode`) os formatos exatos de instalação antes de implementar cada adapter.
-- Avaliar quais blocos entram na sequência do MVP no Hermes (por exemplo: `config.yaml`, memória com `ai-memory` — ainda pendente dos testes descritos em [spikes/ai-memory-hermes](../spikes/ai-memory-hermes/README.md) —, Telegram, integrações e rotinas).
+- Avaliar quais blocos entram na sequência do MVP no Hermes (por exemplo: `config.yaml`, memória persistente, Telegram, integrações e rotinas).

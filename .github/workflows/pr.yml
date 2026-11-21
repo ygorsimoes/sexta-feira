@@ -31,8 +31,8 @@ jobs:
 
   labels:
     name: Labels por área
-    # As PRs do Dependabot rodam com token somente de leitura e já chegam com label.
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    # Dependabot e PRs de forks rodam com token somente de leitura; evita falha de permissão no labeler.
+    if: github.event.pull_request.user.login != 'dependabot[bot]' && !github.event.pull_request.head.repo.fork
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

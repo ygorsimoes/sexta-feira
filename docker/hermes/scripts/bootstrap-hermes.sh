@@ -1,0 +1,113 @@
+#!/bin/sh
+# Configura de forma não interativa o provedor OpenRouter no perfil padrão e no
+# perfil isolado `sexta-feira` sem criar `SOUL.md` nem `memories/USER.md`.
+set -eu
+
+RECONFIGURAR=0
+for arg in "$@"; do
+    case "$arg" in
+        --reconfigurar)
+            RECONFIGURAR=1
+            ;;
+        -h|--help)
+            echo "Uso: $0 [--reconfigurar]"
+            exit 0
+            ;;
+        *)
+            echo "Erro: opção desconhecida '$arg'. Use --reconfigurar." >&2
+            exit 2
+            ;;
+    esac
+done
+
+HERMES_HOME="${HERMES_HOME:-/opt/data}"
+HERMES_MODEL="${HERMES_MODEL:-anthropic/claude-sonnet-4}"
+HERMES_BASE_URL="${HERMES_BASE_URL:-https://openrouter.ai/api/v1}"
+PYTHON_BIN="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
+
+if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+    echo "Erro: OPENROUTER_API_KEY não está definida ou está vazia." >&2
+    echo "Preencha OPENROUTER_API_KEY em docker/hermes/.env e tente novamente." >&2
+    exit 1
+fi
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    PYTHON_BIN="$(command -v python3)"
+fi
+
+configurar_perfil() {
+    dir="$1"
+    rotulo="$2"
+    cfg="$dir/config.yaml"
+    env_arq="$dir/.env"
+
+    mkdir -p "$dir"
+
+    if [ ! -f "$cfg" ] || [ "$RECONFIGURAR" -eq 1 ]; then
+        "$PYTHON_BIN" - "$cfg" "$HERMES_MODEL" "$HERMES_BASE_URL" <<'PY'
+import os
+import sys
+from ruamel.yaml import YAML
+
+cfg_path, model_default, base_url = sys.argv[1:4]
+yaml = YAML()
+yaml.preserve_quotes = True
+
+data = {}
+if os.path.exists(cfg_path):
+    with open(cfg_path, "r", encoding="utf-8") as fh:
+        loaded = yaml.load(fh)
+        if isinstance(loaded, dict):
+            data = loaded
+
+model = data.get("model")
+if not isinstance(model, dict):
+    model = {}
+model["provider"] = "openrouter"
+model["default"] = model_default
+model["base_url"] = base_url
+data["model"] = model
+
+tmp_path = f"{cfg_path}.tmp"
+with open(tmp_path, "w", encoding="utf-8") as fh:
+    yaml.dump(data, fh)
+os.replace(tmp_path, cfg_path)
+PY
+        echo "[bootstrap] config.yaml atualizado para $rotulo ($HERMES_MODEL)."
+    else
+        echo "[bootstrap] config.yaml de $rotulo já existe; preservado."
+    fi
+
+    if [ ! -f "$env_arq" ] || [ "$RECONFIGURAR" -eq 1 ]; then
+        "$PYTHON_BIN" - "$env_arq" <<'PY'
+import os
+import sys
+
+env_path = sys.argv[1]
+api_key = os.environ["OPENROUTER_API_KEY"]
+lines = []
+found = False
+
+if os.path.exists(env_path):
+    with open(env_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("OPENROUTER_API_KEY="):
+                lines.append(f"OPENROUTER_API_KEY={api_key}\n")
+                found = True
+            else:
+                lines.append(line)
+
+if not found:
+    lines.append(f"OPENROUTER_API_KEY={api_key}\n")
+
+tmp_path = f"{env_path}.tmp"
+with open(tmp_path, "w", encoding="utf-8") as fh:
+    fh.writelines(lines)
+os.chmod(tmp_path, 0o600)
+os.replace(tmp_path, env_path)
+PY
+    fi
+}
+
+configurar_perfil "$HERMES_HOME" "perfil padrão"
+configurar_perfil "$HERMES_HOME/profiles/sexta-feira" "perfil sexta-feira"

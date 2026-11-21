@@ -1,66 +1,179 @@
+<div align="center">
+
 # Sexta-feira
+
+**Um único pacote declarativo para transformar seu agente de IA em um mordomo virtual pessoal — sem reconfigurar tudo do zero a cada máquina ou VPS.**
 
 [![CI](https://github.com/ygorsimoes/sexta-feira/actions/workflows/ci.yml/badge.svg)](https://github.com/ygorsimoes/sexta-feira/actions/workflows/ci.yml)
 [![Release](https://github.com/ygorsimoes/sexta-feira/actions/workflows/release.yml/badge.svg)](https://github.com/ygorsimoes/sexta-feira/actions/workflows/release.yml)
+![Rust 1.100+](https://img.shields.io/badge/Rust-1.100%2B-orange?logo=rust)
+[![Licença MIT](https://img.shields.io/badge/licença-MIT-blue.svg)](LICENSE)
 
-Pacote opinativo e agnóstico de harness para configurar um agente de IA como um mordomo virtual pessoal, inspirado no J.A.R.V.I.S. e na Sexta-feira dos filmes do Homem de Ferro.
+[Início rápido](#-início-rápido) · [Personalização](#-personalização-sem-recompilar) · [Referência da CLI](#-referência-da-cli) · [Situação](#-situação-do-projeto) · [Documentação](#-documentação)
 
-A identidade, as regras de conduta, as skills e as configurações preferidas ficam versionadas fora do harness em uma fonte única. Cada adapter apenas traduz e aplica esse setup no harness escolhido, evitando ter que configurar tudo do zero em cada máquina ou VPS.
+</div>
 
-## Situação
+---
 
-O primeiro recorte do MVP está implementado: o núcleo declarativo em `sexta-feira-core` carrega a persona padrão (estilo J.A.R.V.I.S. em `pt-BR`, tratando o usuário por `"senhor"`) e o adapter do Hermes provisiona o perfil isolado `sexta-feira` (`SOUL.md` e `memories/USER.md`) via CLI.
+## ✨ Por que existe
 
-| Parte | Situação |
-|---|---|
-| Fundação do repositório | pronta |
-| Modelo do setup e motor declarativo (`sexta-feira-core`) | implementado (Recorte 1 — persona) |
-| Adapter do Hermes (`SOUL.md` e `memories/USER.md`) | implementado (Recorte 1) |
-| Skills, scripts, `config.yaml` e rotinas no Hermes | próximos incrementos |
-| Demais adapters (`OpenClaw`, `Claude Code`, `Claude Desktop`, `OpenCode`) | depois do MVP |
+Configurar identidade, regras de conduta, forma de tratamento e preferências diretamente dentro de cada agente torna difícil migrar entre máquinas, VPS e ferramentas diferentes.
 
-## Harnesses previstos
+A **Sexta-feira** mantém quem o seu mordomo é (estilo **J.A.R.V.I.S.**, em `pt-BR`) em uma fonte única declarativa e traduz esse setup de forma **idempotente** e **segura** para o harness escolhido — preservando memórias existentes e exigindo confirmação explícita antes de sobrescrever alterações manuais.
 
-- Hermes Agent (primeiro — implementado para persona e perfil)
-- OpenClaw
-- Claude Code
-- Claude Desktop / claude.ai
-- OpenCode
-
-## Estrutura
-
-```text
-crates/
-├── sexta-feira-core/      # modelo agnóstico do mordomo e motor declarativo
-├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
-└── sexta-feira-cli/       # binário `sexta-feira`
-recursos/
-└── mordomo/               # fonte única da persona e do perfil do usuário
-docs/                      # visão, arquitetura, stack e especificações
-spikes/                    # experimentos descartáveis, fora do workspace
+```mermaid
+flowchart LR
+    A["Padrão embutido<br/>recursos/mordomo/*.toml"] --> D["DefinicaoDoMordomo<br/>(camadas com figment)"]
+    B["Config do usuário<br/>~/.config/sexta-feira/*.toml"] --> D
+    C["Flags explícitas<br/>--persona / --usuario"] --> D
+    D --> E["Motor declarativo<br/>(sexta-feira-core)"]
+    E --> F["Adapters<br/>(sexta-feira-adapters)"]
+    F --> G["Hermes Agent (disponível)<br/>SOUL.md + memories/USER.md"]
+    F --> H["OpenClaw · Claude Code ·<br/>Claude Desktop · OpenCode (em breve)"]
 ```
 
-## Desenvolvimento
+---
 
-A versão do Rust está fixada em `rust-toolchain.toml`; o `rustup` a instala sozinho.
+## 🚀 Início rápido
+
+### 1. Instale ou compile o binário
+
+> **Binário pronto (Releases):** baixe o pacote da sua plataforma na página de [Releases](https://github.com/ygorsimoes/sexta-feira/releases) (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` ou `aarch64-apple-darwin`), confira `SHA256SUMS.txt` e coloque `sexta-feira` no seu `PATH`.
+
+> **Pelo código-fonte:** a versão do Rust está fixada em [rust-toolchain.toml](rust-toolchain.toml) e o `rustup` a instala automaticamente:
+>
+> ```bash
+> cargo build --release --package sexta-feira-cli
+> # binário gerado em ./target/release/sexta-feira
+> ```
+
+### 2. Aplique o setup em 4 passos
+
+Se estiver rodando direto do repositório sem instalar, substitua `sexta-feira` por `cargo run -q -p sexta-feira-cli --`.
 
 ```bash
-cargo run -p sexta-feira-cli -- harnesses               # lista os harnesses previstos
-cargo run -p sexta-feira-cli -- plano hermes            # exibe o plano sem alterar o disco
-cargo run -p sexta-feira-cli -- aplicar hermes          # aplica o perfil `sexta-feira` no Hermes
-cargo run -p sexta-feira-cli -- verificar hermes        # verifica se o perfil está sincronizado
-just                                                    # lista as tarefas locais
+# 1. Veja os harnesses disponíveis e em desenvolvimento
+sexta-feira harnesses
+
+# 2. Pré-visualize o plano e o diff sem alterar nada em disco
+sexta-feira plano hermes
+
+# 3. Aplique o perfil isolado `sexta-feira` no Hermes
+sexta-feira aplicar hermes
+
+# 4. Confirme que tudo está sincronizado (exit 0 quando OK)
+sexta-feira verificar hermes
 ```
 
-Todo trabalho entra na `main` por pull request, e a validação é o CI da PR: formatação, lints, testes, documentação, dependências e segurança dos workflows. O fluxo completo, das issues ao merge, está em [CONTRIBUTING.md](CONTRIBUTING.md).
+<details>
+<summary>📂 O que muda no seu Hermes após <code>sexta-feira aplicar hermes</code></summary>
 
-## Documentação
+A Sexta-feira **não altera** o perfil global padrão (`~/.hermes/SOUL.md`). Ela cria o perfil isolado `$HERMES_HOME/profiles/sexta-feira/` (ou `--destino <dir>` / `--perfil <nome>`):
+
+- `SOUL.md` — gerenciado integralmente pela Sexta-feira, com checksum salvo em `.sexta-feira-estado.toml`. Se você editar o arquivo manualmente depois, um próximo `aplicar` acusa conflito e só sobrescreve com `--forcar` (gerando backup `.bak`).
+- `memories/USER.md` — gerenciado por bloco delimitado (`<!-- sexta-feira:inicio -->` ... `<!-- sexta-feira:fim -->`), preservando todas as memórias aprendidas pelo Hermes fora do bloco.
+
+</details>
+
+---
+
+## 🎨 Personalização sem recompilar
+
+O binário embute [recursos/mordomo/persona.toml](recursos/mordomo/persona.toml) e [recursos/mordomo/usuario.toml](recursos/mordomo/usuario.toml), mas você pode sobrescrever apenas os campos que quiser sem tocar no código:
+
+1. **Camada global do usuário (automática):** crie `~/.config/sexta-feira/usuario.toml` (ou `persona.toml`, respeitando `$XDG_CONFIG_HOME`):
+
+   ```toml
+   # ~/.config/sexta-feira/usuario.toml
+   tratamento = "comandante"
+   preferencias = [
+     "Respostas diretas ao ponto, com exemplos executáveis",
+     "Destacar riscos e suposições antes de comandos destrutivos",
+   ]
+   ```
+
+2. **Camada por execução (explícita):** passe `--persona <arquivo.toml>` e/ou `--usuario <arquivo.toml>` para `plano`, `aplicar` ou `verificar`.
+
+Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas são rejeitadas na leitura para evitar erros silenciosos de digitação.
+
+---
+
+## 🛠️ Referência da CLI
+
+| Comando / Opção | O que faz |
+|---|---|
+| `sexta-feira harnesses` | Lista todos os harnesses previstos com status (`disponível` / `em breve`) |
+| `sexta-feira plano <harness>` | Exibe ações (`CRIAR`, `ATUALIZAR`, `OK`, `REMOVER`, `CONFLITO`) e diff sem escrever no disco |
+| `sexta-feira aplicar <harness>` | Aplica o plano; falha antes de gravar se houver conflito sem `--forcar` |
+| `sexta-feira verificar <harness>` | Valida se todos os arquivos e permissões estão sincronizados |
+| `--destino <dir>` | Define explicitamente o diretório base do harness (aceita `~/...` no Hermes e `--hermes-home` como alias) |
+| `--perfil <nome>` | Escolhe o nome do perfil isolado no harness (padrão: `sexta-feira`) |
+| `--persona <arq>` / `--usuario <arq>` | Sobrescreve persona ou perfil do usuário a partir de arquivos TOML |
+| `--forcar` | Em `aplicar`, sobrescreve ou remove itens em conflito gerando backup `.bak` numerado |
+| `--json` | Flag global para saída estruturada em JSON (`stdout`) em qualquer subcomando |
+| `SEXTA_FEIRA_LOG=debug` | Ativa logs diagnósticos detalhados em `stderr` (padrão silencioso em `warn`) |
+
+---
+
+## 📊 Situação do projeto
+
+| Harness / Frente | Situação | Escopo |
+|---|---|---|
+| Núcleo declarativo (`sexta-feira-core`) | **Pronto** | Camadas (`figment`), `ArquivoIntegral`, `BlocoDelimitado`, `MesclagemEstruturada` (JSON/TOML), `+x` e poda de órfãos |
+| **Hermes Agent** — Recorte 1 (Persona & Perfil) | **Disponível** | Perfil isolado (`SOUL.md` e `memories/USER.md`) |
+| **Hermes Agent** — Recorte 2 (Ambiente) | *Em evolução* | `config.yaml`, skills (`SKILL.md`), scripts e rotinas |
+| **OpenClaw**, **Claude Code**, **Claude Desktop**, **OpenCode** | *Em breve* | Adapters após consolidação dos incrementos do Hermes |
+
+---
+
+## 🗂️ Estrutura do repositório
+
+```text
+sexta-feira/
+├── crates/
+│   ├── sexta-feira-core/      # modelo agnóstico do mordomo e motor declarativo (sem conhecimento de harness)
+│   ├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
+│   └── sexta-feira-cli/       # binário `sexta-feira`
+├── recursos/
+│   └── mordomo/               # fonte única padrão de `persona.toml` e `usuario.toml`
+├── docs/                      # visão, arquitetura, stack, especificações e planos
+└── .github/                   # workflows de CI, auditoria, release-please e CD
+```
+
+---
+
+## 💻 Desenvolvimento
+
+Antes de abrir uma pull request a partir de uma branch criada da `main`, rode localmente o que estiver disponível no seu ambiente:
+
+```bash
+just ci    # roda lint (fmt, clippy, machete), doc, testes (nextest + doctests), cargo-deny e zizmor
+just       # lista todas as receitas disponíveis
+```
+
+Sem `just`, execute os comandos equivalentes:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+cargo test --workspace --locked
+cargo test --doc --workspace --locked
+```
+
+Todo trabalho segue o fluxo descrito em [CONTRIBUTING.md](CONTRIBUTING.md) (`issue` → `branch` → `PR` com CI verde e squash merge).
+
+---
+
+## 📚 Documentação
 
 - [Visão e arquitetura](docs/visao.md)
-- [Stack](docs/stack.md)
+- [Stack de bibliotecas e ferramentas](docs/stack.md)
 - [Como contribuir](CONTRIBUTING.md)
 - [Guia para agentes](AGENTS.md)
 
-## Licença
+---
 
-[MIT](LICENSE)
+## 📄 Licença
+
+Distribuído sob a licença [MIT](LICENSE).

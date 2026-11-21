@@ -39,7 +39,8 @@ services:
       - -c
       - |
         cargo build --release --locked --manifest-path /src/Cargo.toml --package sexta-feira-cli
-        install -m 0755 /target-linux/release/sexta-feira /out/sexta-feira
+        install -m 0755 /target-linux/release/sexta-feira /out/sexta-feira.tmp
+        mv -f /out/sexta-feira.tmp /out/sexta-feira
 
   hermes:
     <<: *hermes-base

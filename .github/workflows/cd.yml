@@ -59,6 +59,13 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked --package sexta-feira-cli --target "$TARGET"
+      - name: Smoke test do binário
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          bin="target/${TARGET}/release/sexta-feira"
+          "$bin" --version
+          "$bin" --json harnesses
       - name: Empacotar artefato
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}

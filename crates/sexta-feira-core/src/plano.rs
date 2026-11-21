@@ -600,23 +600,52 @@ fn checksum_conteudo(conteudo: &str) -> String {
 fn gerar_resumo_diff(antes: &str, depois: &str) -> String {
     let linhas_antes: Vec<&str> = antes.lines().collect();
     let linhas_depois: Vec<&str> = depois.lines().collect();
+    let dp = tabela_lcs(&linhas_antes, &linhas_depois);
     let mut saida = String::new();
+    let mut i = 0;
+    let mut j = 0;
 
-    for linha in &linhas_antes {
-        if !linhas_depois.contains(linha) {
-            let _ = writeln!(saida, "- {linha}");
+    while i < linhas_antes.len() && j < linhas_depois.len() {
+        if linhas_antes[i] == linhas_depois[j] {
+            i += 1;
+            j += 1;
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            let _ = writeln!(saida, "- {}", linhas_antes[i]);
+            i += 1;
+        } else {
+            let _ = writeln!(saida, "+ {}", linhas_depois[j]);
+            j += 1;
         }
     }
-    for linha in &linhas_depois {
-        if !linhas_antes.contains(linha) {
-            let _ = writeln!(saida, "+ {linha}");
-        }
+
+    for linha in &linhas_antes[i..] {
+        let _ = writeln!(saida, "- {linha}");
+    }
+    for linha in &linhas_depois[j..] {
+        let _ = writeln!(saida, "+ {linha}");
     }
 
     if saida.is_empty() {
         let _ = writeln!(saida, "~ alteração de formatação ou quebras de linha");
     }
     saida.trim_end().to_owned()
+}
+
+fn tabela_lcs(antes: &[&str], depois: &[&str]) -> Vec<Vec<usize>> {
+    let n = antes.len();
+    let m = depois.len();
+    let mut dp = vec![vec![0usize; m + 1]; n + 1];
+
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if antes[i] == depois[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
+        }
+    }
+    dp
 }
 
 #[cfg(test)]
@@ -1011,5 +1040,22 @@ mod tests {
             resultado,
             format!("Prefixo sem quebra\n{inicio}\nnovo\n{fim}\n")
         );
+    }
+
+    #[test]
+    fn resumo_diff_detecta_remocao_de_linha_duplicada() {
+        let diff = gerar_resumo_diff("a\nb\na\n", "a\nb\n");
+        assert!(
+            diff.lines().any(|linha| linha == "- a"),
+            "esperava remoção da segunda ocorrência de `a`, obteve: {diff:?}"
+        );
+    }
+
+    #[test]
+    fn resumo_diff_detecta_reordenacao_de_linhas() {
+        let diff = gerar_resumo_diff("linha 1\nlinha 2\n", "linha 2\nlinha 1\n");
+        assert!(diff.contains("- "), "esperava remoção no diff: {diff:?}");
+        assert!(diff.contains("+ "), "esperava adição no diff: {diff:?}");
+        assert!(!diff.contains("formatação"));
     }
 }

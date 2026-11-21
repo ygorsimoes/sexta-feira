@@ -134,11 +134,21 @@ impl Drop for TempValidacao {
 
 /// Executa o subcomando `iniciar`.
 pub fn executar(opcoes: &OpcoesIniciar, json: bool, nivel_verbose: u8) -> anyhow::Result<()> {
+    if json && !opcoes.nao_interativo {
+        bail!("o modo `--json` em `iniciar` requer `--nao-interativo`");
+    }
+
     let interativo = !opcoes.nao_interativo;
     if interativo && !std::io::stdin().is_terminal() {
         bail!(
             "modo interativo requer um terminal (TTY); passe `--nao-interativo` (ex.: `sexta-feira iniciar --tratamento \"senhor\" --nao-interativo`)"
         );
+    }
+
+    if let Some(harness) = opcoes.harness
+        && !harness.disponivel()
+    {
+        return Err(ErroHarnessNaoImplementado { harness }.into());
     }
 
     let config_dir = resolver_diretorio_alvo(opcoes)?;
@@ -147,7 +157,7 @@ pub fn executar(opcoes: &OpcoesIniciar, json: bool, nivel_verbose: u8) -> anyhow
     let (acao, backup_config) =
         processar_usuario_toml(opcoes, &config_dir, &usuario_path, interativo)?;
 
-    let (harness_escolhido, aplicar_agora) = if interativo && opcoes.harness.is_none() && !json {
+    let (harness_escolhido, aplicar_agora) = if interativo && opcoes.harness.is_none() {
         perguntar_harness_interativo()?
     } else {
         (opcoes.harness, opcoes.aplicar)
@@ -220,8 +230,7 @@ fn processar_usuario_toml(
                 config_dir.display()
             )
         })?;
-        fs::write(usuario_path, toml_novo)
-            .with_context(|| format!("não foi possível gravar `{}`", usuario_path.display()))?;
+        gravar_arquivo_atomico(usuario_path, &toml_novo)?;
         return Ok((AcaoConfig::Criado, None));
     }
 
@@ -255,9 +264,7 @@ fn processar_usuario_toml(
             }
 
             let backup = criar_backup_numerado(usuario_path)?;
-            fs::write(usuario_path, toml_novo).with_context(|| {
-                format!("não foi possível atualizar `{}`", usuario_path.display())
-            })?;
+            gravar_arquivo_atomico(usuario_path, &toml_novo)?;
             Ok((AcaoConfig::Atualizado, Some(backup)))
         }
         Err(err_parse) => {
@@ -329,8 +336,7 @@ fn regenerar_arquivo_invalido(
     }
 
     let backup = criar_backup_numerado(usuario_path)?;
-    fs::write(usuario_path, toml_novo)
-        .with_context(|| format!("não foi possível gravar `{}`", usuario_path.display()))?;
+    gravar_arquivo_atomico(usuario_path, &toml_novo)?;
     Ok((AcaoConfig::Atualizado, Some(backup)))
 }
 
@@ -372,40 +378,39 @@ fn coletar_interativo(
 ) -> anyhow::Result<UsuarioParcial> {
     let mut err = std::io::stderr().lock();
     let _ = writeln!(err, "Configuração inicial da Sexta-feira");
+    drop(err);
 
-    let tratamento_padrao = opcoes
-        .tratamento
-        .as_deref()
-        .or_else(|| existente.and_then(|e| e.tratamento.as_deref()))
-        .unwrap_or("senhor");
     let tratamento = if let Some(t) = &opcoes.tratamento {
-        t.clone()
+        Some(t.clone())
     } else {
-        drop(err);
+        let atual = existente.and_then(|e| e.tratamento.as_deref());
+        let padrao_exibido = atual.unwrap_or("senhor");
         let resp = ler_linha_tty(&format!(
-            "Como deseja ser tratado? [Enter = \"{tratamento_padrao}\"]: "
+            "Como deseja ser tratado? [Enter = \"{padrao_exibido}\"]: "
         ))?;
-        if resp.trim().is_empty() {
-            tratamento_padrao.to_owned()
+        let padrao_se_novo = if existente.is_none() {
+            Some("senhor")
         } else {
-            resp.trim().to_owned()
-        }
+            None
+        };
+        resolver_texto_opcional(None, atual, padrao_se_novo, &resp)
     };
 
-    let idioma_padrao = opcoes
-        .idioma
-        .as_deref()
-        .or_else(|| existente.and_then(|e| e.idioma.as_deref()))
-        .unwrap_or("pt-BR");
     let idioma = if let Some(i) = &opcoes.idioma {
-        i.clone()
+        Some(i.clone())
     } else {
-        let resp = ler_linha_tty(&format!("Idioma preferido [Enter = \"{idioma_padrao}\"]: "))?;
-        if resp.trim().is_empty() {
-            idioma_padrao.to_owned()
+        let atual = existente.and_then(|e| e.idioma.as_deref());
+        let dica_idioma = atual.map_or_else(
+            || "Enter = herdar padrão (\"pt-BR\")".to_owned(),
+            |v| format!("Enter = \"{v}\""),
+        );
+        let resp = ler_linha_tty(&format!("Idioma preferido [{dica_idioma}]: "))?;
+        let padrao_se_novo = if existente.is_none() {
+            Some("pt-BR")
         } else {
-            resp.trim().to_owned()
-        }
+            None
+        };
+        resolver_texto_opcional(None, atual, padrao_se_novo, &resp)
     };
 
     let preferencias = if opcoes.preferencias.is_empty() {
@@ -417,20 +422,44 @@ fn coletar_interativo(
         let resp = ler_linha_tty(&format!(
             "Preferências separadas por `;` (atenção: substitui a lista padrão) [{hint}]: "
         ))?;
-        if resp.trim().is_empty() {
-            existente.and_then(|e| e.preferencias.clone())
-        } else {
-            Some(resp.split(';').map(|s| s.trim().to_owned()).collect())
-        }
+        parsear_preferencias_tty(&resp).or_else(|| existente.and_then(|e| e.preferencias.clone()))
     } else {
         Some(opcoes.preferencias.clone())
     };
 
     Ok(UsuarioParcial {
-        tratamento: Some(tratamento),
-        idioma: Some(idioma),
+        tratamento,
+        idioma,
         preferencias,
     })
+}
+
+fn resolver_texto_opcional(
+    explicito: Option<&str>,
+    existente: Option<&str>,
+    padrao_se_novo: Option<&str>,
+    entrada_tty: &str,
+) -> Option<String> {
+    if let Some(valor) = explicito {
+        return Some(valor.to_owned());
+    }
+    let limpo = entrada_tty.trim();
+    if !limpo.is_empty() {
+        return Some(limpo.to_owned());
+    }
+    existente
+        .map(str::to_owned)
+        .or_else(|| padrao_se_novo.map(str::to_owned))
+}
+
+fn parsear_preferencias_tty(entrada: &str) -> Option<Vec<String>> {
+    let itens: Vec<String> = entrada
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if itens.is_empty() { None } else { Some(itens) }
 }
 
 fn autorizar_sobrescrita(
@@ -486,12 +515,15 @@ fn criar_backup_numerado(origem: &Path) -> anyhow::Result<PathBuf> {
             .open(&destino)
         {
             Ok(_) => {
-                fs::copy(origem, &destino).with_context(|| {
-                    format!(
-                        "não foi possível copiar backup para `{}`",
-                        destino.display()
-                    )
-                })?;
+                if let Err(err) = fs::copy(origem, &destino) {
+                    let _ = fs::remove_file(&destino);
+                    return Err(err).with_context(|| {
+                        format!(
+                            "não foi possível copiar backup para `{}`",
+                            destino.display()
+                        )
+                    });
+                }
                 return Ok(destino);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -506,6 +538,34 @@ fn criar_backup_numerado(origem: &Path) -> anyhow::Result<PathBuf> {
     }
 }
 
+fn gravar_arquivo_atomico(destino: &Path, conteudo: &str) -> anyhow::Result<()> {
+    let pai = destino.parent().unwrap_or_else(|| Path::new("."));
+    let seq = CONTADOR_VALIDACAO.fetch_add(1, Ordering::Relaxed);
+    let nome = destino
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("usuario.toml");
+    let caminho_tmp = pai.join(format!(".{nome}.tmp.{}.{seq}", std::process::id()));
+
+    let escrita = (|| -> std::io::Result<()> {
+        let mut arquivo = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&caminho_tmp)?;
+        arquivo.write_all(conteudo.as_bytes())?;
+        arquivo.sync_all()?;
+        fs::rename(&caminho_tmp, destino)?;
+        Ok(())
+    })();
+
+    if let Err(err) = escrita {
+        let _ = fs::remove_file(&caminho_tmp);
+        return Err(err)
+            .with_context(|| format!("não foi possível gravar `{}`", destino.display()));
+    }
+    Ok(())
+}
+
 fn executar_etapa_harness(
     harness: Harness,
     config_dir: &Path,
@@ -513,11 +573,19 @@ fn executar_etapa_harness(
     aplicar_agora: bool,
     nivel_verbose: u8,
 ) -> anyhow::Result<(Option<PlanoIniciarJson>, Option<AplicadoIniciarJson>)> {
-    let adaptador = match harness {
+    let (adaptador, destino_base, origem_destino, perfil_dir) = match harness {
         Harness::Hermes => {
-            let config =
-                ConfiguracaoHermes::resolver(opcoes.destino.as_deref(), opcoes.perfil.as_deref())?;
-            AdaptadorHermes::new(config)
+            let env_hermes = std::env::var("HERMES_HOME").ok();
+            let env_home = std::env::var("HOME").ok();
+            let (config, origem) = ConfiguracaoHermes::resolver_com_origem(
+                opcoes.destino.as_deref(),
+                env_hermes.as_deref(),
+                env_home.as_deref(),
+                opcoes.perfil.as_deref(),
+            )?;
+            let base = config.hermes_home.clone();
+            let perfil_dir = config.diretorio_do_perfil();
+            (AdaptadorHermes::new(config), base, origem, perfil_dir)
         }
         outro => return Err(ErroHarnessNaoImplementado { harness: outro }.into()),
     };
@@ -529,6 +597,14 @@ fn executar_etapa_harness(
     };
     let (definicao, camadas) = DefinicaoDoMordomo::carregar_com_camadas(&fontes)?;
     verbose::emitir_contexto_definicao(nivel_verbose, &definicao, &camadas);
+    verbose::emitir_contexto_destino(
+        nivel_verbose,
+        adaptador.id(),
+        &destino_base,
+        origem_destino,
+        &perfil_dir,
+        &adaptador.arquivo_estado(),
+    );
 
     let desejados = adaptador.planejar_arquivos(&definicao)?;
     let plano = planejar(desejados, adaptador.arquivo_estado())?;
@@ -644,11 +720,21 @@ fn imprimir_resumo_texto(
             "Plano para `{}`: {} criar, {} atualizar, {} conflitos",
             pl.harness, pl.criar, pl.atualizar, pl.conflitos
         )?;
-        writeln!(
-            saida,
-            "Próximo passo: execute `sexta-feira aplicar {}`.",
-            pl.harness
-        )?;
+        if pl.conflitos > 0 {
+            writeln!(
+                saida,
+                "Próximo passo: revise os conflitos com `sexta-feira plano {}` ou aplique com `sexta-feira aplicar {} --forcar`.",
+                pl.harness, pl.harness
+            )?;
+        } else if pl.criar > 0 || pl.atualizar > 0 {
+            writeln!(
+                saida,
+                "Próximo passo: execute `sexta-feira aplicar {}`.",
+                pl.harness
+            )?;
+        } else {
+            writeln!(saida, "Setup do `{}` já está sincronizado.", pl.harness)?;
+        }
     } else if harness.is_none() {
         writeln!(
             saida,
@@ -656,4 +742,35 @@ fn imprimir_resumo_texto(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parsear_preferencias_tty_ignora_segmentos_vazios() {
+        assert_eq!(
+            parsear_preferencias_tty(" Direto ao ponto ; ; Objetivo ; "),
+            Some(vec!["Direto ao ponto".to_owned(), "Objetivo".to_owned()])
+        );
+        assert_eq!(parsear_preferencias_tty(" ; ; "), None);
+    }
+
+    #[test]
+    fn resolver_texto_opcional_preserva_ausencia_no_existente() {
+        assert_eq!(resolver_texto_opcional(None, None, None, "  "), None);
+        assert_eq!(
+            resolver_texto_opcional(None, None, Some("pt-BR"), ""),
+            Some("pt-BR".to_owned())
+        );
+        assert_eq!(
+            resolver_texto_opcional(None, Some("en-US"), None, ""),
+            Some("en-US".to_owned())
+        );
+        assert_eq!(
+            resolver_texto_opcional(None, Some("en-US"), None, "pt-BR"),
+            Some("pt-BR".to_owned())
+        );
+    }
 }

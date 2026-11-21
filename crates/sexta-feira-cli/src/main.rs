@@ -7,7 +7,6 @@ mod verbose;
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use sexta_feira_adapters::{
@@ -168,6 +167,23 @@ impl std::fmt::Display for ErroHarnessNaoImplementado {
 }
 
 impl std::error::Error for ErroHarnessNaoImplementado {}
+
+#[derive(Debug)]
+struct ErroVerificacaoPendente {
+    harness: Harness,
+}
+
+impl std::fmt::Display for ErroVerificacaoPendente {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "setup de `{}` possui pendências ou divergências",
+            self.harness
+        )
+    }
+}
+
+impl std::error::Error for ErroVerificacaoPendente {}
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
@@ -524,36 +540,35 @@ fn executar_verificar(alvo: &OpcoesAlvo, json: bool, nivel_verbose: u8) -> anyho
     drop(saida);
 
     if !resultado.sincronizado {
-        if !json {
-            let _ = writeln!(
-                std::io::stderr(),
-                "Dica: execute `sexta-feira aplicar {}` para sincronizar.",
-                alvo.harness
-            );
+        return Err(ErroVerificacaoPendente {
+            harness: alvo.harness,
         }
-        bail!(
-            "setup de `{}` possui pendências ou divergências",
-            alvo.harness
-        );
+        .into());
     }
     Ok(())
 }
 
-fn sugerir_dica(erro: &anyhow::Error) -> Option<&'static str> {
+fn sugerir_dica(erro: &anyhow::Error) -> Option<String> {
     if erro.downcast_ref::<ErroHarnessNaoImplementado>().is_some() {
         return Some(
-            "rode `sexta-feira harnesses` para ver o status atual ou peça ao seu agente para seguir a instalação assistida em `recursos/skills/instalar-sexta-feira/SKILL.md`.",
+            "rode `sexta-feira harnesses` para ver o status atual ou peça ao seu agente para seguir a instalação assistida em `recursos/skills/instalar-sexta-feira/SKILL.md`.".to_owned(),
         );
+    }
+    if let Some(verif) = erro.downcast_ref::<ErroVerificacaoPendente>() {
+        return Some(format!(
+            "execute `sexta-feira aplicar {}` para sincronizar.",
+            verif.harness
+        ));
     }
     if let Some(ErroDePlano::ConflitoPendente { .. }) = erro.downcast_ref::<ErroDePlano>() {
         return Some(
-            "rode `sexta-feira plano <harness>` para inspecionar o diff ou use `sexta-feira aplicar <harness> --forcar` para sobrescrever gerando backup `.bak`.",
+            "rode `sexta-feira plano <harness>` para inspecionar o diff ou use `sexta-feira aplicar <harness> --forcar` para sobrescrever gerando backup `.bak`.".to_owned(),
         );
     }
     if let Some(err_def) = erro.downcast_ref::<ErroDeDefinicao>() {
         return match err_def {
             ErroDeDefinicao::ArquivoNaoEncontrado { .. } => Some(
-                "confira o caminho informado em `--persona`/`--usuario` ou crie a configuração padrão no diretório `${XDG_CONFIG_HOME:-~/.config}/sexta-feira/`.",
+                "confira o caminho informado em `--persona`/`--usuario` ou crie a configuração padrão no diretório `${XDG_CONFIG_HOME:-~/.config}/sexta-feira/`.".to_owned(),
             ),
             ErroDeDefinicao::ConfiguracaoUsuarioInvalida { .. }
             | ErroDeDefinicao::ConfiguracaoPersonaInvalida { .. }
@@ -561,13 +576,14 @@ fn sugerir_dica(erro: &anyhow::Error) -> Option<&'static str> {
             | ErroDeDefinicao::TomlPersonaInvalido(_)
             | ErroDeDefinicao::CampoObrigatorioVazio { .. }
             | ErroDeDefinicao::ListaObrigatoriaVazia { .. } => Some(
-                "chaves válidas de `usuario.toml` (`tratamento`, `idioma`, `preferencias`) e `persona.toml` (`nome`, `arquetipo`, `idioma`, `resumo`, `tom`, `diretrizes`, `limites`) não aceitam campos extras ou vazios. Use `-vv` ou `diagnostico` para inspecionar as camadas.",
+                "chaves válidas de `usuario.toml` (`tratamento`, `idioma`, `preferencias`) e `persona.toml` (`nome`, `arquetipo`, `idioma`, `resumo`, `tom`, `diretrizes`, `limites`) não aceitam campos extras ou vazios. Use `-vv` ou `diagnostico` para inspecionar as camadas.".to_owned(),
             ),
         };
     }
     if let Some(ErroDeHermes::DiretorioBaseIndisponivel) = erro.downcast_ref::<ErroDeHermes>() {
         return Some(
-            "informe `--destino <dir>` (ou `--hermes-home <dir>`) ou defina `HERMES_HOME`/`HOME`.",
+            "informe `--destino <dir>` (ou `--hermes-home <dir>`) ou defina `HERMES_HOME`/`HOME`."
+                .to_owned(),
         );
     }
     None

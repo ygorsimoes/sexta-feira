@@ -908,3 +908,87 @@ fn json_com_vvv_e_trace_nao_contamina_stdout_em_nenhum_subcomando() {
         serde_json::from_str(&stdout_falha).expect("stdout de verificar falha deve ser JSON puro");
     assert_eq!(json_falha["sincronizado"], false);
 }
+
+#[test]
+fn iniciar_valida_harness_antes_de_gravar_exibe_dica_conflito_e_emite_destino_verbose() {
+    let dir = DirTemporario::novo("iniciar-melhorias");
+    let config_dir = dir.path().join("cfg");
+    let destino = dir.path().join("hermes");
+
+    // 1. Harness sem adapter falha antes de criar usuario.toml
+    let _ = comando_cli()
+        .args([
+            "iniciar",
+            "--config-dir",
+            &config_dir.display().to_string(),
+            "--harness",
+            "openclaw",
+            "--nao-interativo",
+        ])
+        .assert()
+        .failure();
+    assert!(!config_dir.join("usuario.toml").exists());
+
+    // 2. Conflito no destino + -v emite destino em stderr e dica com --forcar
+    fs::create_dir_all(destino.join("profiles/sexta-feira")).expect("cria perfil");
+    fs::write(destino.join("profiles/sexta-feira/SOUL.md"), "# Manual\n").expect("grava SOUL");
+    let ok_conflito = comando_cli()
+        .args([
+            "-v",
+            "iniciar",
+            "--config-dir",
+            &config_dir.display().to_string(),
+            "--harness",
+            "hermes",
+            "--destino",
+            &destino.display().to_string(),
+            "--nao-interativo",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(ok_conflito.get_output().stdout.clone()).expect("UTF-8");
+    let stderr = String::from_utf8(ok_conflito.get_output().stderr.clone()).expect("UTF-8");
+    assert!(stdout.contains("--forcar"));
+    assert!(stderr.contains("[verbose] destino:"));
+}
+
+#[test]
+fn diagnostico_diferencia_erro_de_persona_e_verificar_ordena_erro_antes_da_dica() {
+    let dir = DirTemporario::novo("diag-persona-ordem");
+    let xdg = dir.path().join("xdg");
+    let destino = dir.path().join("hermes");
+    fs::create_dir_all(xdg.join("sexta-feira")).expect("cria xdg");
+    fs::write(xdg.join("sexta-feira/persona.toml"), "nome = \"\"\n").expect("persona vazia");
+
+    let diag = comando_cli()
+        .env("XDG_CONFIG_HOME", &xdg)
+        .args([
+            "--json",
+            "diagnostico",
+            "--destino",
+            &destino.display().to_string(),
+        ])
+        .assert()
+        .success();
+    let json: serde_json::Value = serde_json::from_slice(&diag.get_output().stdout).expect("JSON");
+    let proximo = json["proximo_passo"].as_str().expect("proximo_passo");
+    assert!(proximo.contains("persona.toml"));
+    assert!(!proximo.contains("iniciar --sobrescrever"));
+
+    let verif = comando_cli()
+        .args([
+            "verificar",
+            "hermes",
+            "--destino",
+            &destino.display().to_string(),
+        ])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8(verif.get_output().stderr.clone()).expect("UTF-8");
+    let pos_erro = stderr.find("Erro:").expect("Erro: presente");
+    let pos_dica = stderr.find("Dica:").expect("Dica: presente");
+    assert!(
+        pos_erro < pos_dica,
+        "Erro: deve vir antes de Dica:\n{stderr}"
+    );
+}

@@ -10,8 +10,8 @@ use sexta_feira_adapters::{
     OrigemResolucaoDestino, inspecionar_ambiente_harnesses,
 };
 use sexta_feira_core::{
-    AdaptadorDeSetup, CamadaDeDefinicao, DefinicaoDoMordomo, FontesDaDefinicao, OrigemDaCamada,
-    StatusDaCamada, verificar,
+    AdaptadorDeSetup, CamadaDeDefinicao, DefinicaoDoMordomo, ErroDeDefinicao, FontesDaDefinicao,
+    OrigemDaCamada, StatusDaCamada, verificar,
 };
 
 use crate::{escrever_json, verbose};
@@ -138,8 +138,8 @@ pub fn executar(opcoes: &OpcoesDiagnostico, json: bool, nivel_verbose: u8) -> an
         .collect();
 
     let proximo_passo = definir_proximo_passo(
-        resultado_def.is_ok(),
-        opcoes.harness,
+        resultado_def.as_ref().err(),
+        opcoes,
         &harnesses_diag,
         fontes.diretorio_config.as_deref(),
     );
@@ -248,19 +248,13 @@ fn enriquecer_harness(
 }
 
 fn definir_proximo_passo(
-    definicao_valida: bool,
-    filtro: Option<Harness>,
+    erro_definicao: Option<&ErroDeDefinicao>,
+    opcoes: &OpcoesDiagnostico,
     harnesses: &[HarnessDiagJson],
     diretorio_config: Option<&std::path::Path>,
 ) -> String {
-    if !definicao_valida {
-        let alvo = diretorio_config.map_or_else(
-            || "${XDG_CONFIG_HOME:-~/.config}/sexta-feira/usuario.toml".to_owned(),
-            |d| d.join("usuario.toml").display().to_string(),
-        );
-        return format!(
-            "Corrija `{alvo}` ou execute `sexta-feira iniciar --sobrescrever` para regenerar com backup `.bak`."
-        );
+    if let Some(err) = erro_definicao {
+        return sugerir_correcao_definicao(err, opcoes, diretorio_config);
     }
 
     if let Some(hermes) = harnesses.iter().find(|h| h.id == "hermes") {
@@ -280,9 +274,60 @@ fn definir_proximo_passo(
         };
     }
 
-    let id = filtro.map_or("este harness", Harness::id);
+    let id = opcoes.harness.map_or("este harness", Harness::id);
     format!(
         "`{id}` ainda não possui adapter oficial na CLI; use a skill em `recursos/skills/instalar-sexta-feira/SKILL.md` para instalação assistida."
+    )
+}
+
+fn sugerir_correcao_definicao(
+    erro: &ErroDeDefinicao,
+    opcoes: &OpcoesDiagnostico,
+    diretorio_config: Option<&std::path::Path>,
+) -> String {
+    if let ErroDeDefinicao::ArquivoNaoEncontrado { caminho } = erro {
+        return format!(
+            "Confira o caminho `{}` informado em `--persona`/`--usuario` e rode `sexta-feira diagnostico` novamente.",
+            caminho.display()
+        );
+    }
+
+    let eh_persona = match erro {
+        ErroDeDefinicao::ConfiguracaoPersonaInvalida { .. }
+        | ErroDeDefinicao::TomlPersonaInvalido(_) => true,
+        ErroDeDefinicao::CampoObrigatorioVazio { campo }
+        | ErroDeDefinicao::ListaObrigatoriaVazia { campo } => campo.starts_with("persona."),
+        _ => false,
+    };
+
+    if eh_persona {
+        let alvo = opcoes.persona.as_ref().map_or_else(
+            || {
+                diretorio_config.map_or_else(
+                    || "${XDG_CONFIG_HOME:-~/.config}/sexta-feira/persona.toml".to_owned(),
+                    |d| d.join("persona.toml").display().to_string(),
+                )
+            },
+            |p| p.display().to_string(),
+        );
+        return format!(
+            "Corrija `{alvo}` (chaves válidas: `nome`, `arquetipo`, `idioma`, `resumo`, `tom`, `diretrizes`, `limites`) e rode `sexta-feira diagnostico` novamente."
+        );
+    }
+
+    if let Some(usuario_explicito) = opcoes.usuario.as_ref() {
+        return format!(
+            "Corrija `{}` informado em `--usuario` e rode `sexta-feira diagnostico` novamente.",
+            usuario_explicito.display()
+        );
+    }
+
+    let alvo = diretorio_config.map_or_else(
+        || "${XDG_CONFIG_HOME:-~/.config}/sexta-feira/usuario.toml".to_owned(),
+        |d| d.join("usuario.toml").display().to_string(),
+    );
+    format!(
+        "Corrija `{alvo}` ou execute `sexta-feira iniciar --sobrescrever` para regenerar com backup `.bak`."
     )
 }
 

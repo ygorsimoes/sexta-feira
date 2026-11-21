@@ -127,6 +127,14 @@ pub enum ErroDePlano {
         #[source]
         fonte: toml::de::Error,
     },
+    /// Arquivo de estado com versão de esquema desconhecida ou incompatível.
+    #[error("versão de estado não suportada ({versao}) em `{caminho}`")]
+    VersaoDeEstadoNaoSuportada {
+        /// Caminho do arquivo de estado.
+        caminho: PathBuf,
+        /// Versão encontrada no arquivo.
+        versao: u32,
+    },
     /// Falha ao serializar o arquivo de estado para TOML.
     #[error("não foi possível serializar o estado do setup: {0}")]
     SerializacaoDeEstado(#[source] toml::ser::Error),
@@ -150,10 +158,28 @@ pub enum ErroDePlano {
     },
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+const VERSAO_ESTADO_ATUAL: u32 = 1;
+const LIMITE_CELULAS_LCS: usize = 250_000;
+
+const fn versao_estado_atual() -> u32 {
+    VERSAO_ESTADO_ATUAL
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct EstadoAplicado {
+    #[serde(default = "versao_estado_atual")]
+    versao: u32,
     #[serde(default)]
     arquivos_integrais: BTreeMap<String, String>,
+}
+
+impl Default for EstadoAplicado {
+    fn default() -> Self {
+        Self {
+            versao: VERSAO_ESTADO_ATUAL,
+            arquivos_integrais: BTreeMap::new(),
+        }
+    }
 }
 
 /// Calcula o plano declarativo sem modificar o sistema de arquivos.
@@ -413,11 +439,11 @@ fn mesclar_bloco(
         return Ok(bloco_completo);
     };
 
-    let qtd_inicio = texto.matches(inicio).count();
-    let qtd_fim = texto.matches(fim).count();
+    let ocorrencias_inicio = localizar_linhas_marcador(texto, inicio);
+    let ocorrencias_fim = localizar_linhas_marcador(texto, fim);
 
-    match (qtd_inicio, qtd_fim) {
-        (0, 0) => {
+    match (ocorrencias_inicio.as_slice(), ocorrencias_fim.as_slice()) {
+        ([], []) => {
             if texto.trim().is_empty() {
                 Ok(bloco_completo)
             } else {
@@ -427,20 +453,10 @@ fn mesclar_bloco(
                 ))
             }
         }
-        (1, 1)
-            if let Some(i) = texto.find(inicio)
-                && let Some(f) = texto.find(fim)
-                && i + inicio.len() <= f =>
-        {
-            let antes = &texto[..i];
-            let separador = if antes.is_empty() || antes.ends_with('\n') {
-                ""
-            } else {
-                "\n"
-            };
-            let restante = &texto[f + fim.len()..];
-            let depois = restante.strip_prefix('\n').unwrap_or(restante);
-            Ok(format!("{antes}{separador}{bloco_completo}{depois}"))
+        ([pos_inicio], [pos_fim]) if pos_inicio.inicio_byte < pos_fim.inicio_byte => {
+            let antes = &texto[..pos_inicio.inicio_byte];
+            let depois = &texto[pos_fim.fim_byte..];
+            Ok(format!("{antes}{bloco_completo}{depois}"))
         }
         _ => Err(ErroDePlano::DelimitadoresInvalidos {
             caminho: caminho.to_path_buf(),
@@ -448,6 +464,30 @@ fn mesclar_bloco(
             fim,
         }),
     }
+}
+
+struct OcorrenciaMarcador {
+    inicio_byte: usize,
+    fim_byte: usize,
+}
+
+fn localizar_linhas_marcador(texto: &str, marcador: &str) -> Vec<OcorrenciaMarcador> {
+    let mut ocorrencias = Vec::new();
+    let mut offset = 0usize;
+
+    for linha in texto.split_inclusive('\n') {
+        let fim_linha = offset + linha.len();
+        let conteudo_linha = linha.strip_suffix('\n').unwrap_or(linha);
+        if conteudo_linha.trim_end_matches([' ', '\t']) == marcador {
+            ocorrencias.push(OcorrenciaMarcador {
+                inicio_byte: offset,
+                fim_byte: fim_linha,
+            });
+        }
+        offset = fim_linha;
+    }
+
+    ocorrencias
 }
 
 fn extrair_conflito(acao: &AcaoPlanejada) -> Option<ErroDePlano> {
@@ -538,10 +578,18 @@ fn carregar_estado(caminho: &Path) -> Result<EstadoAplicado, ErroDePlano> {
     let Some(conteudo) = ler_opcional(caminho)? else {
         return Ok(EstadoAplicado::default());
     };
-    toml::from_str(&conteudo).map_err(|fonte| ErroDePlano::EstadoInvalido {
-        caminho: caminho.to_path_buf(),
-        fonte,
-    })
+    let estado: EstadoAplicado =
+        toml::from_str(&conteudo).map_err(|fonte| ErroDePlano::EstadoInvalido {
+            caminho: caminho.to_path_buf(),
+            fonte,
+        })?;
+    if estado.versao != VERSAO_ESTADO_ATUAL {
+        return Err(ErroDePlano::VersaoDeEstadoNaoSuportada {
+            caminho: caminho.to_path_buf(),
+            versao: estado.versao,
+        });
+    }
+    Ok(estado)
 }
 
 fn salvar_estado(caminho: &Path, estado: &EstadoAplicado) -> Result<(), ErroDePlano> {
@@ -655,30 +703,40 @@ fn gerar_resumo_diff(antes: &str, depois: &str) -> String {
     let miolo_antes = &restante_antes[..restante_antes.len() - sufixo];
     let miolo_depois = &restante_depois[..restante_depois.len() - sufixo];
 
-    let cols = miolo_depois.len() + 1;
-    let dp = tabela_lcs(miolo_antes, miolo_depois);
     let mut saida = String::new();
-    let mut i = 0;
-    let mut j = 0;
-
-    while i < miolo_antes.len() && j < miolo_depois.len() {
-        if miolo_antes[i] == miolo_depois[j] {
-            i += 1;
-            j += 1;
-        } else if dp[(i + 1) * cols + j] >= dp[i * cols + (j + 1)] {
-            let _ = writeln!(saida, "- {}", miolo_antes[i]);
-            i += 1;
-        } else {
-            let _ = writeln!(saida, "+ {}", miolo_depois[j]);
-            j += 1;
+    let celulas = (miolo_antes.len() + 1).saturating_mul(miolo_depois.len() + 1);
+    if celulas > LIMITE_CELULAS_LCS {
+        for linha in miolo_antes {
+            let _ = writeln!(saida, "- {linha}");
         }
-    }
+        for linha in miolo_depois {
+            let _ = writeln!(saida, "+ {linha}");
+        }
+    } else {
+        let cols = miolo_depois.len() + 1;
+        let dp = tabela_lcs(miolo_antes, miolo_depois);
+        let mut i = 0;
+        let mut j = 0;
 
-    for linha in &miolo_antes[i..] {
-        let _ = writeln!(saida, "- {linha}");
-    }
-    for linha in &miolo_depois[j..] {
-        let _ = writeln!(saida, "+ {linha}");
+        while i < miolo_antes.len() && j < miolo_depois.len() {
+            if miolo_antes[i] == miolo_depois[j] {
+                i += 1;
+                j += 1;
+            } else if dp[(i + 1) * cols + j] >= dp[i * cols + (j + 1)] {
+                let _ = writeln!(saida, "- {}", miolo_antes[i]);
+                i += 1;
+            } else {
+                let _ = writeln!(saida, "+ {}", miolo_depois[j]);
+                j += 1;
+            }
+        }
+
+        for linha in &miolo_antes[i..] {
+            let _ = writeln!(saida, "- {linha}");
+        }
+        for linha in &miolo_depois[j..] {
+            let _ = writeln!(saida, "+ {linha}");
+        }
     }
 
     if saida.is_empty() {
@@ -1070,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn bloco_delimitado_separa_linha_quando_prefixo_nao_termina_com_quebra() {
+    fn bloco_delimitado_nao_casa_marcador_com_prefixo_na_mesma_linha() {
         let dir = DirTemporario::novo("prefixo-sem-quebra");
         let estado = dir.path().join(".sexta-feira-estado.toml");
         let user = dir.path().join("USER.md");
@@ -1089,13 +1147,18 @@ mod tests {
             estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
         }];
 
-        let plano = planejar(desejados, estado).expect("planeja");
+        let err = planejar(desejados.clone(), estado.clone())
+            .expect_err("marcador de inicio com prefixo na mesma linha deixa fim órfão");
+        assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
+
+        fs::write(&user, format!("Prefixo {inicio} e {fim} na frase\n")).expect("grava frase");
+        let plano = planejar(desejados, estado).expect("marcadores inline não interferem");
         aplicar(&plano, false).expect("aplica");
 
         let resultado = fs::read_to_string(&user).expect("lê resultado");
         assert_eq!(
             resultado,
-            format!("Prefixo sem quebra\n{inicio}\nnovo\n{fim}\n")
+            format!("{inicio}\nnovo\n{fim}\n\nPrefixo {inicio} e {fim} na frase\n")
         );
     }
 
@@ -1175,5 +1238,95 @@ mod tests {
             .expect("cria symlink quebrado em .bak");
 
         assert_eq!(caminho_backup(&soul), dir.path().join("SOUL.md.bak.1"));
+    }
+
+    #[test]
+    fn carregar_estado_aceita_formato_legado_sem_versao_e_rejeita_versao_nao_suportada() {
+        let dir = DirTemporario::novo("versao-estado");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul = dir.path().join("SOUL.md");
+        fs::write(
+            &estado,
+            format!(
+                "[arquivos_integrais]\n\"SOUL.md\" = \"{}\"\n",
+                checksum_conteudo("# V1\n")
+            ),
+        )
+        .expect("grava estado legado");
+        fs::write(&soul, "# V1\n").expect("grava soul");
+
+        let plano = planejar(
+            vec![ArquivoDesejado {
+                caminho: soul.clone(),
+                conteudo: "# V2\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            }],
+            estado.clone(),
+        )
+        .expect("estado legado sem versao deve ser aceito");
+        assert!(matches!(
+            plano.acoes[0].operacao,
+            OperacaoPlanejada::Atualizar
+        ));
+        aplicar(&plano, false).expect("grava estado versionado");
+        let estado_salvo = fs::read_to_string(&estado).expect("le estado");
+        assert!(estado_salvo.contains("versao = 1"));
+
+        fs::write(&estado, "versao = 99\n").expect("grava versao futura");
+        let err = planejar(
+            vec![ArquivoDesejado {
+                caminho: soul,
+                conteudo: "# V2\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            }],
+            estado,
+        )
+        .expect_err("versao futura deve falhar");
+        assert!(matches!(
+            err,
+            ErroDePlano::VersaoDeEstadoNaoSuportada { versao: 99, .. }
+        ));
+    }
+
+    #[test]
+    fn bloco_delimitado_ignora_marcador_inline_e_espacos_a_direita_no_marcador() {
+        let dir = DirTemporario::novo("marcador-por-linha");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let user = dir.path().join("USER.md");
+        let inicio = "<!-- sexta-feira:inicio -->";
+        let fim = "<!-- sexta-feira:fim -->";
+
+        fs::write(
+            &user,
+            format!("{inicio}  \nantigo\n{fim}\t \nNota: usar `{inicio}` no exemplo.\n"),
+        )
+        .expect("grava arquivo");
+
+        let desejados = vec![ArquivoDesejado {
+            caminho: user.clone(),
+            conteudo: "novo\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        }];
+        let plano = planejar(desejados, estado).expect("nao deve confundir marcador inline");
+        aplicar(&plano, false).expect("aplica");
+
+        let final_txt = fs::read_to_string(&user).expect("le final");
+        assert_eq!(
+            final_txt,
+            format!("{inicio}\nnovo\n{fim}\nNota: usar `{inicio}` no exemplo.\n")
+        );
+    }
+
+    #[test]
+    fn resumo_diff_usa_fallback_linear_acima_do_limite_lcs() {
+        let mut antes = String::new();
+        let mut depois = String::new();
+        for idx in 0..600 {
+            let _ = writeln!(antes, "antiga {idx}");
+            let _ = writeln!(depois, "nova {idx}");
+        }
+        let diff = gerar_resumo_diff(&antes, &depois);
+        assert!(diff.contains("- antiga 0"));
+        assert!(diff.contains("+ nova 599"));
     }
 }

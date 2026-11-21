@@ -260,13 +260,13 @@ pub fn planejar(
     let estado = carregar_estado(&arquivo_estado)?;
     let raiz_estado = arquivo_estado.parent();
     let mut acoes = Vec::with_capacity(arquivos.len());
-    let mut chaves_integrais_desejadas = BTreeSet::new();
+    let mut chaves_desejadas = BTreeSet::new();
 
     for arquivo in arquivos {
+        chaves_desejadas.insert(chave_estado(&arquivo.caminho, raiz_estado));
         let atual = ler_opcional(&arquivo.caminho)?;
         let acao = match arquivo.estrategia {
             EstrategiaDeEscrita::ArquivoIntegral => {
-                chaves_integrais_desejadas.insert(chave_estado(&arquivo.caminho, raiz_estado));
                 planejar_integral(&arquivo, atual.as_deref(), &estado, raiz_estado)?
             }
             EstrategiaDeEscrita::BlocoDelimitado { inicio, fim } => {
@@ -280,7 +280,7 @@ pub fn planejar(
     }
 
     for (chave, checksum_registrado) in &estado.arquivos_integrais {
-        if chaves_integrais_desejadas.contains(chave) {
+        if chaves_desejadas.contains(chave) {
             continue;
         }
         let caminho = resolver_caminho_estado(chave, raiz_estado);
@@ -1916,5 +1916,72 @@ mod tests {
             p_quebrado.acoes[0].operacao,
             OperacaoPlanejada::Conflito { .. }
         ));
+    }
+
+    #[test]
+    fn migracao_de_arquivo_integral_para_outra_estrategia_nao_remove_arquivo() {
+        let dir = DirTemporario::novo("migracao-estrategia");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let cfg = dir.path().join("config.toml");
+
+        let v1 = vec![ArquivoDesejado::new(
+            cfg.clone(),
+            "[usuario]\ntratamento = \"senhor\"\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
+        aplicar(&planejar(v1, estado.clone()).expect("plano v1"), false).expect("aplica v1");
+
+        let v2 = vec![ArquivoDesejado::new(
+            cfg.clone(),
+            "[usuario]\ntratamento = \"senhor\"\nidioma = \"pt-BR\"\n".to_owned(),
+            EstrategiaDeEscrita::MesclagemEstruturada {
+                formato: FormatoEstruturado::Toml,
+            },
+        )];
+        let p2 = planejar(v2.clone(), estado.clone()).expect("plano migracao");
+        assert_eq!(
+            p2.acoes.len(),
+            1,
+            "nao deve emitir acao duplicada de Remover"
+        );
+        assert!(!matches!(p2.acoes[0].operacao, OperacaoPlanejada::Remover));
+
+        aplicar(&p2, false).expect("aplica migracao");
+        assert!(cfg.exists(), "arquivo migrado deve permanecer em disco");
+        let conteudo = fs::read_to_string(&cfg).expect("le migrado");
+        assert!(conteudo.contains("idioma = \"pt-BR\""));
+        assert!(
+            verificar(&v2, &estado)
+                .expect("verifica migrado")
+                .sincronizado
+        );
+
+        let estado_salvo = fs::read_to_string(&estado).expect("le estado");
+        let parsed: EstadoAplicado = toml::from_str(&estado_salvo).expect("estado valido");
+        assert!(
+            parsed.arquivos_integrais.is_empty(),
+            "chave antiga integral deve ter sido podada do estado"
+        );
+
+        let bloco = dir.path().join("USER.md");
+        let b1 = vec![ArquivoDesejado::new(
+            bloco.clone(),
+            "nota inicial\n".to_owned(),
+            EstrategiaDeEscrita::ArquivoIntegral,
+        )];
+        aplicar(&planejar(b1, estado.clone()).expect("plano b1"), false).expect("aplica b1");
+        let b2 = vec![ArquivoDesejado::new(
+            bloco.clone(),
+            "bloco novo\n".to_owned(),
+            EstrategiaDeEscrita::BlocoDelimitado {
+                inicio: "<!-- inicio -->",
+                fim: "<!-- fim -->",
+            },
+        )];
+        let pb2 = planejar(b2.clone(), estado.clone()).expect("plano b2");
+        assert_eq!(pb2.acoes.len(), 1);
+        aplicar(&pb2, false).expect("aplica b2");
+        assert!(bloco.exists());
+        assert!(verificar(&b2, &estado).expect("verifica b2").sincronizado);
     }
 }

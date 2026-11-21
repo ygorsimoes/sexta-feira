@@ -103,9 +103,9 @@ cli *args:
 subir modo="local" *opcoes:
     ./docker/hermes/lab.sh subir "$@"
 
-# Abre o chat do Hermes no perfil escolhido (padrão: sexta-feira).
+# Abre o chat do Hermes no perfil escolhido (padrão: sexta-feira, modo local).
 [group('laboratorio')]
-chat perfil="sexta-feira" modo="local":
+chat *args:
     ./docker/hermes/lab.sh chat "$@"
 
 # Abre o chat do Hermes no perfil padrão (para instalar via SKILL.md).

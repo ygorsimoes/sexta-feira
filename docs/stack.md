@@ -7,8 +7,8 @@ Bibliotecas e ferramentas confirmadas para o projeto. Uma biblioteca só entra n
 | Função | Biblioteca | Situação |
 |---|---|---|
 | CLI | `clap` | em uso |
-| Serialização | `serde`, `serde_json`, `toml` | `serde` e `toml` em uso; `serde_json` prevista |
-| Configuração | `figment` | prevista (se necessário para mesclar configs) |
+| Serialização | `serde`, `serde_json`, `toml` | em uso |
+| Configuração | `figment` | em uso |
 | Erros | `thiserror` nas bibliotecas, `anyhow` nos binários | em uso |
 | Logs | `tracing`, `tracing-subscriber` | `tracing-subscriber` em uso; `tracing` prevista |
 

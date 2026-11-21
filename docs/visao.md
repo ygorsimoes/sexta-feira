@@ -66,14 +66,15 @@ sexta-feira/
 │   ├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
 │   └── sexta-feira-cli/       # binário `sexta-feira`
 ├── recursos/
-│   └── mordomo/               # fonte única da persona e do perfil do usuário
+│   ├── mordomo/               # fonte única da persona e do perfil do usuário
+│   └── skills/                # skills (SKILL.md), incluindo instalação guiada por agente
 ├── docs/                      # visão, arquitetura, stack e especificações
 └── spikes/                    # experimentos descartáveis, fora do workspace
 ```
 
 Ainda a criar, conforme os próximos incrementos avançarem:
 
-- Skills (`SKILL.md`), scripts utilitários e presets de `config.yaml` em `recursos/`.
+- Demais skills (`SKILL.md`), scripts utilitários e presets de `config.yaml` em `recursos/`.
 - Demais adapters por harness.
 
 As bibliotecas e ferramentas estão em [stack.md](stack.md).

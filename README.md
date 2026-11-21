@@ -36,7 +36,19 @@ flowchart LR
 
 ## 🚀 Início rápido
 
-### 1. Instale ou compile o binário
+### Instalar com seu próprio agente (recomendado)
+
+Peça diretamente ao agente que você já usa (Hermes, Claude Code, OpenCode, OpenClaw etc.) para ler [a skill de instalação](recursos/skills/instalar-sexta-feira/SKILL.md) e configurar tudo para você — usando a CLI `sexta-feira` quando há adapter oficial e fazendo tradução assistida de `recursos/mordomo/*.toml` nos demais harnesses:
+
+```text
+Leia https://raw.githubusercontent.com/ygorsimoes/sexta-feira/main/recursos/skills/instalar-sexta-feira/SKILL.md e instale a Sexta-feira neste ambiente seguindo as instruções.
+```
+
+---
+
+### Instalação manual pela CLI
+
+#### 1. Instale ou compile o binário
 
 > **Binário pronto (Releases):** baixe o pacote da sua plataforma na página de [Releases](https://github.com/ygorsimoes/sexta-feira/releases) (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` ou `aarch64-apple-darwin`), confira `SHA256SUMS.txt` e coloque `sexta-feira` no seu `PATH`.
 
@@ -47,7 +59,7 @@ flowchart LR
 > # binário gerado em ./target/release/sexta-feira
 > ```
 
-### 2. Aplique o setup em 4 passos
+#### 2. Aplique o setup em 4 passos
 
 Se estiver rodando direto do repositório sem instalar, substitua `sexta-feira` por `cargo run -q -p sexta-feira-cli --`.
 
@@ -135,7 +147,8 @@ sexta-feira/
 │   ├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
 │   └── sexta-feira-cli/       # binário `sexta-feira`
 ├── recursos/
-│   └── mordomo/               # fonte única padrão de `persona.toml` e `usuario.toml`
+│   ├── mordomo/               # fonte única padrão de `persona.toml` e `usuario.toml`
+│   └── skills/                # skills (SKILL.md), incluindo instalação guiada por agente
 ├── docs/                      # visão, arquitetura, stack, especificações e planos
 └── .github/                   # workflows de CI, auditoria, release-please e CD
 ```

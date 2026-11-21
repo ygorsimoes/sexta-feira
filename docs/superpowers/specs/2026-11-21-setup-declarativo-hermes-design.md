@@ -19,7 +19,7 @@ Neste primeiro recorte do MVP, o objetivo é tirar o projeto do papel com um flu
 - Disponibilizar subcomandos declarativos na CLI `sexta-feira` com testes unitários e de ponta a ponta.
 
 ### Não-objetivos (ficam para incrementos futuros)
-- Gerenciamento de `config.yaml`, skills (`SKILL.md`), plugins Python (`plugin.yaml` / `__init__.py`), MCPs (`ai-memory`, Composio), Telegram ou `cron`.
+- Gerenciamento de `config.yaml`, skills (`SKILL.md`), plugins Python (`plugin.yaml` / `__init__.py`), MCPs (ex.: Composio), Telegram ou `cron`.
 - Instalação ou download do próprio Hermes Agent, chamadas de rede ou daemon contínuo.
 - Implementação dos adapters de `OpenClaw`, `Claude Code`, `Claude Desktop` e `OpenCode`.
 

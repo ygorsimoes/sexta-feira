@@ -19,7 +19,7 @@ Endurecer os pontos frágeis identificados no motor declarativo (`sexta-feira-co
 ### Não-objetivos
 - Alterar o comportamento da CLI (`sexta-feira-cli`), do adaptador do Hermes (`sexta-feira-adapters`) ou dos arquivos em `recursos/mordomo/`.
 - Introduzir novas bibliotecas externas fora de `docs/stack.md`.
-- Implementar recursos do Recorte 2 (`config.yaml`, skills, `ai-memory`) ou customização local de `persona.toml`/`usuario.toml`.
+- Implementar recursos do Recorte 2 (`config.yaml`, skills, memória persistente) ou customização local de `persona.toml`/`usuario.toml`.
 
 ### Anti-objetivos
 - Quebrar compatibilidade com `.sexta-feira-estado.toml` já gerado no Recorte 1 para o caso comum (chaves relativas ao diretório de estado continuam idênticas).

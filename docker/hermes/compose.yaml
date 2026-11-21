@@ -27,6 +27,7 @@ services:
     environment:
       CARGO_TARGET_DIR: /target-linux
       CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: 1.100.0
     volumes:
       - ../..:/src:ro
       - cargo_registry:/usr/local/cargo/registry

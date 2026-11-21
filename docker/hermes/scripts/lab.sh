@@ -132,8 +132,11 @@ cmd_subir() {
     servico="$(servico_do_modo "$modo")"
 
     if [ "$modo" = "local" ]; then
+        compose --profile dia-zero stop hermes-dia-zero >/dev/null 2>&1 || true
         echo "[lab] Compilando CLI sexta-feira para Linux (cache ativo)..."
         compose --profile local run --rm builder
+    else
+        compose --profile local stop hermes >/dev/null 2>&1 || true
     fi
 
     echo "[lab] Subindo serviço '$servico' (modo $modo)..."

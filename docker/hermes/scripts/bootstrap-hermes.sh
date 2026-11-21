@@ -40,10 +40,11 @@ configurar_perfil() {
     rotulo="$2"
     cfg="$dir/config.yaml"
     env_arq="$dir/.env"
+    marcador="$dir/.sexta-feira-lab-bootstrap"
 
     mkdir -p "$dir"
 
-    if [ ! -f "$cfg" ] || [ "$RECONFIGURAR" -eq 1 ]; then
+    if [ ! -f "$cfg" ] || [ ! -f "$marcador" ] || [ "$RECONFIGURAR" -eq 1 ]; then
         "$PYTHON_BIN" - "$cfg" "$HERMES_MODEL" "$HERMES_BASE_URL" <<'PY'
 import os
 import sys
@@ -78,7 +79,7 @@ PY
         echo "[bootstrap] config.yaml de $rotulo já existe; preservado."
     fi
 
-    if [ ! -f "$env_arq" ] || [ "$RECONFIGURAR" -eq 1 ]; then
+    if [ ! -f "$env_arq" ] || [ ! -f "$marcador" ] || [ "$RECONFIGURAR" -eq 1 ]; then
         "$PYTHON_BIN" - "$env_arq" <<'PY'
 import os
 import sys
@@ -107,6 +108,8 @@ os.chmod(tmp_path, 0o600)
 os.replace(tmp_path, env_path)
 PY
     fi
+
+    : > "$marcador"
 }
 
 configurar_perfil "$HERMES_HOME" "perfil padrão"

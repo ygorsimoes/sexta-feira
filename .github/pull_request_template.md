@@ -1,22 +1,26 @@
-<!-- O título segue o Conventional Commits em pt-BR, por exemplo: feat(core): adiciona motor de políticas -->
+<!-- 💡 O título deve seguir Conventional Commits em pt-BR, ex.: feat(core): adiciona motor de políticas -->
 
-## O que muda
+## ✨ O que muda
 
-<!-- Descreva a mudança e o motivo. -->
+> **Resumo:** descreva de forma objetiva **o que** mudou e **por quê**.
 
-## Issue
+- **Área / componente:** ...
 
-<!-- Closes #123. Se não houver issue, diga por quê. -->
+## 🔗 Issue
 
-## Como foi verificado
+<!-- Ex.: Closes #123. Se não houver issue, explique o motivo. -->
 
-<!-- O CI cobre formatação, lints, testes, documentação e dependências. Descreva aqui o que foi verificado além dele e o que não foi possível verificar. -->
+## ✅ Como foi verificado
 
-## Checklist
+- **Localmente:** `just ci` (ou comandos `cargo` executados)
+- **CI da PR:** checks automáticos (`CI`, `Título da PR`, `zizmor`, `cargo-deny`)
+- **Observações:** *(se algo não pôde ser verificado localmente, registre aqui)*
 
-- [ ] A PR trata de um assunto só.
-- [ ] Há testes para o comportamento novo ou corrigido, ou a descrição explica por que não.
-- [ ] A documentação (`README.md`, `docs/`, `AGENTS.md`) acompanha a mudança.
-- [ ] Nada específico de harness entrou em `sexta-feira-core`.
-- [ ] Nenhuma biblioteca fora de `docs/stack.md` entrou sem confirmação.
-- [ ] Nenhum segredo entrou no repositório.
+## 📋 Checklist
+
+- [ ] **Escopo único:** a PR trata de um assunto só.
+- [ ] **Testes:** comportamento novo ou corrigido possui testes (ou explicação acima).
+- [ ] **Documentação:** `README.md`, `docs/` e `AGENTS.md` acompanham a mudança.
+- [ ] **Isolamento do núcleo:** nada específico de harness entrou em `sexta-feira-core`.
+- [ ] **Dependências:** nenhuma biblioteca fora de `docs/stack.md` entrou sem confirmação.
+- [ ] **Segurança:** nenhum segredo, token ou dado sensível entrou no repositório.

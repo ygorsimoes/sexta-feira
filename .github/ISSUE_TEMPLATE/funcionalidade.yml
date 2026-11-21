@@ -1,27 +1,31 @@
-name: Funcionalidade
-description: Uma capacidade nova da Sexta-feira.
+name: "✨ Funcionalidade"
+description: "Propor uma nova capacidade ou melhoria para a Sexta-feira."
 title: "feat: "
 labels: [funcionalidade]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Dica:** foque em um único resultado bem definido. Se crescer demais, divida em issues menores.
   - type: textarea
     id: problema
     attributes:
-      label: Problema ou necessidade
-      description: O que hoje não é possível, ou é difícil, e por que isso importa.
+      label: "💡 Problema ou necessidade"
+      description: "O que hoje não é possível (ou é difícil) e **por que isso importa**."
     validations:
       required: true
   - type: textarea
     id: proposta
     attributes:
-      label: Proposta
-      description: Como a Sexta-feira deve se comportar depois da mudança.
+      label: "🧭 Proposta"
+      description: "Como a Sexta-feira deve se comportar depois da mudança."
     validations:
       required: true
   - type: textarea
     id: criterios
     attributes:
-      label: Critérios de aceite
-      description: O que precisa ser verdade para a issue ser fechada.
+      label: "✅ Critérios de aceite"
+      description: "O que precisa ser verdade para esta issue ser considerada concluída."
       placeholder: |
         - [ ] ...
         - [ ] ...
@@ -30,7 +34,8 @@ body:
   - type: dropdown
     id: area
     attributes:
-      label: Área
+      label: "🗂️ Área"
+      description: "Selecione uma ou mais áreas impactadas."
       multiple: true
       options:
         - core
@@ -43,9 +48,10 @@ body:
   - type: textarea
     id: alternativas
     attributes:
-      label: Alternativas consideradas
+      label: "⚖️ Alternativas consideradas"
+      description: "Outras abordagens avaliadas e o motivo de não terem sido escolhidas."
   - type: textarea
     id: fora-do-escopo
     attributes:
-      label: Fora do escopo
-      description: O que esta issue não cobre, para a PR não crescer.
+      label: "🚫 Fora do escopo"
+      description: "O que esta issue **não** cobre, para manter a PR enxuta e focada."

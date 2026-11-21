@@ -1,0 +1,98 @@
+name: CD
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag da release para compilar e publicar (ex. v0.1.0)
+        required: true
+        type: string
+
+concurrency:
+  group: cd-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Compilar (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            musl: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            musl: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            musl: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+      - name: Instalar dependências de linkagem musl
+        if: matrix.musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+      - name: Instalar toolchain e target Rust
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+      - name: Compilar binário de release
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --package sexta-feira-cli --target "$TARGET"
+      - name: Empacotar artefato
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          stage="sexta-feira-${TAG}-${TARGET}"
+          mkdir -p dist "$stage"
+          cp "target/${TARGET}/release/sexta-feira" README.md LICENSE "$stage/"
+          tar -czf "dist/${stage}.tar.gz" -C "$stage" .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sexta-feira-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publicar artefatos da release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sexta-feira-*
+          merge-multiple: true
+          path: dist
+      - name: Gerar checksums SHA-256
+        run: (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
+      - name: Anexar artefatos à Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release upload "$TAG" dist/* --clobber

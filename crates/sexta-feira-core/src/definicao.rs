@@ -42,6 +42,41 @@ pub struct PerfilDoUsuario {
     pub preferencias: Vec<String>,
 }
 
+/// Origem de uma camada avaliada ao carregar a definição do mordomo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrigemDaCamada {
+    /// Definição padrão embutida no binário.
+    Embutida,
+    /// Arquivo no diretório de configuração do usuário (`$XDG_CONFIG_HOME/sexta-feira` ou `~/.config/sexta-feira`).
+    DiretorioConfig,
+    /// Arquivo passado explicitamente via `--persona` ou `--usuario`.
+    ArquivoExplicito,
+}
+
+/// Situação de uma camada inspecionada no disco.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusDaCamada {
+    /// Camada presente e aplicada na composição.
+    Aplicada,
+    /// Camada opcional ou explícita não encontrada em disco.
+    Ausente,
+}
+
+/// Metadados de uma camada avaliada para compor `persona` ou `usuario`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CamadaDeDefinicao {
+    /// Seção correspondente (`"persona"` ou `"usuario"`).
+    pub secao: &'static str,
+    /// Origem da camada na ordem de precedência.
+    pub origem: OrigemDaCamada,
+    /// Caminho em disco associado, quando aplicável.
+    pub caminho: Option<PathBuf>,
+    /// Situação da camada no momento da inspeção.
+    pub status: StatusDaCamada,
+}
+
 /// Fontes opcionais para compor e sobrescrever a definição do mordomo em camadas.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FontesDaDefinicao {
@@ -78,6 +113,69 @@ impl FontesDaDefinicao {
         home.map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|h| PathBuf::from(h).join(".config").join("sexta-feira"))
+    }
+
+    /// Lista as camadas consultadas para `persona` e `usuario` na ordem exata de precedência.
+    #[must_use]
+    pub fn inspecionar_camadas(&self) -> Vec<CamadaDeDefinicao> {
+        let mut camadas = Vec::new();
+        self.coletar_camadas_secao(
+            "persona",
+            "persona.toml",
+            self.persona_explicita.as_deref(),
+            &mut camadas,
+        );
+        self.coletar_camadas_secao(
+            "usuario",
+            "usuario.toml",
+            self.usuario_explicito.as_deref(),
+            &mut camadas,
+        );
+        camadas
+    }
+
+    fn coletar_camadas_secao(
+        &self,
+        secao: &'static str,
+        nome_arquivo: &str,
+        explicito: Option<&Path>,
+        saida: &mut Vec<CamadaDeDefinicao>,
+    ) {
+        saida.push(CamadaDeDefinicao {
+            secao,
+            origem: OrigemDaCamada::Embutida,
+            caminho: None,
+            status: StatusDaCamada::Aplicada,
+        });
+
+        if let Some(dir) = self.diretorio_config.as_deref() {
+            let caminho = dir.join(nome_arquivo);
+            let status = if caminho.exists() {
+                StatusDaCamada::Aplicada
+            } else {
+                StatusDaCamada::Ausente
+            };
+            saida.push(CamadaDeDefinicao {
+                secao,
+                origem: OrigemDaCamada::DiretorioConfig,
+                caminho: Some(caminho),
+                status,
+            });
+        }
+
+        if let Some(caminho) = explicito {
+            let status = if caminho.exists() {
+                StatusDaCamada::Aplicada
+            } else {
+                StatusDaCamada::Ausente
+            };
+            saida.push(CamadaDeDefinicao {
+                secao,
+                origem: OrigemDaCamada::ArquivoExplicito,
+                caminho: Some(caminho.to_path_buf()),
+                status,
+            });
+        }
     }
 }
 
@@ -149,12 +247,26 @@ impl DefinicaoDoMordomo {
     /// Retorna erro se um arquivo explícito não existir, se houver erro de sintaxe ou
     /// chave desconhecida, ou se algum campo obrigatório falhar na validação.
     pub fn carregar(fontes: &FontesDaDefinicao) -> Result<Self, ErroDeDefinicao> {
+        let (definicao, _) = Self::carregar_com_camadas(fontes)?;
+        Ok(definicao)
+    }
+
+    /// Carrega a definição em camadas e devolve a lista ordenada das camadas avaliadas.
+    ///
+    /// # Errors
+    ///
+    /// Retorna erro se um arquivo explícito não existir, se houver erro de sintaxe ou
+    /// chave desconhecida, ou se algum campo obrigatório falhar na validação.
+    pub fn carregar_com_camadas(
+        fontes: &FontesDaDefinicao,
+    ) -> Result<(Self, Vec<CamadaDeDefinicao>), ErroDeDefinicao> {
         tracing::debug!(
             diretorio_config = ?fontes.diretorio_config,
             persona_explicita = ?fontes.persona_explicita,
             usuario_explicito = ?fontes.usuario_explicito,
             "carregando definição do mordomo em camadas"
         );
+        let camadas = fontes.inspecionar_camadas();
         let dir_persona = fontes
             .diretorio_config
             .as_deref()
@@ -180,7 +292,7 @@ impl DefinicaoDoMordomo {
 
         let definicao = Self { persona, usuario };
         definicao.validar()?;
-        Ok(definicao)
+        Ok((definicao, camadas))
     }
 
     /// Carrega e valida uma definição a partir de conteúdos TOML.
@@ -426,5 +538,31 @@ mod tests {
             DefinicaoDoMordomo::carregar(&fontes_chave),
             Err(ErroDeDefinicao::ConfiguracaoUsuarioInvalida { .. })
         ));
+    }
+
+    #[test]
+    fn inspecionar_camadas_reflete_ordem_e_status_sem_conhecer_harnesses() {
+        let dir = DirTemporario::novo("camadas-info");
+        fs::write(dir.path().join("usuario.toml"), "tratamento = \"capitão\"\n").expect("grava");
+        let explicito = dir.path().join("persona-extra.toml");
+        fs::write(&explicito, "nome = \"Sexta\"\n").expect("grava");
+
+        let fontes = FontesDaDefinicao {
+            diretorio_config: Some(dir.path().to_path_buf()),
+            persona_explicita: Some(explicito.clone()),
+            usuario_explicito: None,
+        };
+        let (def, camadas) =
+            DefinicaoDoMordomo::carregar_com_camadas(&fontes).expect("carrega com camadas");
+        assert_eq!(def.persona.nome, "Sexta");
+        assert_eq!(def.usuario.tratamento, "capitão");
+        assert_eq!(camadas.len(), 5);
+        assert_eq!(camadas[0].secao, "persona");
+        assert_eq!(camadas[0].origem, OrigemDaCamada::Embutida);
+        assert_eq!(camadas[1].status, StatusDaCamada::Ausente);
+        assert_eq!(camadas[2].status, StatusDaCamada::Aplicada);
+        assert_eq!(camadas[2].caminho, Some(explicito));
+        assert_eq!(camadas[3].secao, "usuario");
+        assert_eq!(camadas[4].status, StatusDaCamada::Aplicada);
     }
 }

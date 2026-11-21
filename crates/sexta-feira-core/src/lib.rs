@@ -10,7 +10,8 @@ pub mod plano;
 
 pub use adaptador::{AdaptadorDeSetup, ErroDeAdaptador};
 pub use definicao::{
-    DefinicaoDoMordomo, ErroDeDefinicao, FontesDaDefinicao, PerfilDoUsuario, Persona,
+    CamadaDeDefinicao, DefinicaoDoMordomo, ErroDeDefinicao, FontesDaDefinicao, OrigemDaCamada,
+    PerfilDoUsuario, Persona, StatusDaCamada,
 };
 pub use plano::{
     AcaoPlanejada, ArquivoDesejado, ErroDePlano, EstrategiaDeEscrita, FormatoEstruturado,

@@ -3,6 +3,14 @@
 //! Esta crate não conhece nenhum harness. Tudo o que é específico de um
 //! harness fica em `sexta-feira-adapters`.
 
+pub mod adaptador;
 pub mod definicao;
+pub mod plano;
 
+pub use adaptador::{AdaptadorDeSetup, ErroDeAdaptador};
 pub use definicao::{DefinicaoDoMordomo, ErroDeDefinicao, PerfilDoUsuario, Persona};
+pub use plano::{
+    AcaoPlanejada, ArquivoDesejado, ErroDePlano, EstrategiaDeEscrita, ItemDeVerificacao,
+    OperacaoPlanejada, PlanoDeSetup, ResultadoDaAplicacao, ResultadoDaVerificacao, aplicar,
+    planejar, verificar,
+};

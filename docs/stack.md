@@ -6,19 +6,11 @@ Bibliotecas e ferramentas confirmadas para o projeto. Uma biblioteca só entra n
 
 | Função | Biblioteca | Situação |
 |---|---|---|
-| Runtime assíncrono | `tokio` | prevista |
-| Servidor HTTP | `axum` | prevista |
-| MCP | `rmcp` | prevista |
-| Banco do motor (auditoria, políticas, agenda) | SQLite com `sqlx` | prevista |
-| Telegram (avisos e botões) | `teloxide` | prevista |
-| Cliente HTTP (Composio) | `reqwest` | prevista |
 | CLI | `clap` | em uso |
-| Serialização | `serde`, `serde_json`, `toml` | `serde` em uso |
-| Configuração | `figment` | prevista |
+| Serialização | `serde`, `serde_json`, `toml` | `serde` em uso; `serde_json` e `toml` previstas |
+| Configuração | `figment` | prevista (se necessário para mesclar configs) |
 | Erros | `thiserror` nas bibliotecas, `anyhow` nos binários | em uso |
-| Logs | `tracing` | `tracing-subscriber` em uso; `tracing` prevista |
-| Agendador | `tokio-cron-scheduler` | prevista |
-| Datas | `jiff` | prevista |
+| Logs | `tracing`, `tracing-subscriber` | `tracing-subscriber` em uso; `tracing` prevista |
 
 ## Ferramentas
 
@@ -32,10 +24,3 @@ Bibliotecas e ferramentas confirmadas para o projeto. Uma biblioteca só entra n
 | Atualização de dependências | Dependabot (Cargo, GitHub Actions e versão do Rust) |
 | Tarefas locais | `just` |
 | Commits | Conventional Commits em pt-BR |
-
-## Serviços externos
-
-| Função | Serviço |
-|---|---|
-| Integrações (Gmail, Google Calendar etc.) | Composio |
-| Memória | ai-memory (opção preferida, pendente de testes; ver [visao.md](visao.md)) |

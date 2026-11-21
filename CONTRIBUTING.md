@@ -59,10 +59,10 @@ As versões e o `CHANGELOG.md` são gerenciados automaticamente pelo [`release-p
 
 ## Ambiente local (opcional)
 
-O CI é a validação oficial; rodar as verificações localmente só antecipa o resultado.
+O CI é a validação oficial; rodar as verificações localmente só antecipa o resultado (com as ferramentas no host ou dentro de container via `just docker-ci`).
 
-- Rust na versão fixada em `rust-toolchain.toml` (o `rustup` instala sozinho).
-- [`just`](https://github.com/casey/just), [`cargo-nextest`](https://nexte.st), [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny), [`cargo-insta`](https://insta.rs), [`cargo-machete`](https://github.com/bnjbvr/cargo-machete) e [`zizmor`](https://github.com/zizmorcore/zizmor).
+- Docker + [`just`](https://github.com/casey/just) para rodar `just docker-ci` e o laboratório local sem instalar ferramentas extras, ou:
+- Rust na versão fixada em `rust-toolchain.toml` (o `rustup` instala sozinho) junto de [`cargo-nextest`](https://nexte.st), [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny), [`cargo-insta`](https://insta.rs), [`cargo-machete`](https://github.com/bnjbvr/cargo-machete) e [`zizmor`](https://github.com/zizmorcore/zizmor).
 
 | Comando | O que faz |
 |---|---|
@@ -73,6 +73,7 @@ O CI é a validação oficial; rodar as verificações localmente só antecipa o
 | `just deny` | Verifica licenças e avisos de segurança das dependências |
 | `just repo` | Verifica a segurança dos workflows |
 | `just ci` | Roda tudo o que o CI roda |
+| `just docker-ci` | Roda todo o CI dentro do container Docker padronizado |
 | `just snapshots` | Revisa snapshots alterados |
 
 ## Convenções de código

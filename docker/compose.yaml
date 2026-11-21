@@ -1,0 +1,113 @@
+name: sexta-feira
+
+x-hermes-base: &hermes-base
+  image: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+  restart: unless-stopped
+  command: ["sleep", "infinity"]
+  env_file:
+    - path: ../.env
+      required: false
+  ports:
+    - "127.0.0.1:${HERMES_GATEWAY_PORTA:-8642}:8642"
+    - "127.0.0.1:${HERMES_DASHBOARD_PORTA:-9119}:9119"
+  environment: &hermes-env
+    HOME: /opt/data
+    HERMES_HOME: /opt/data
+    HERMES_WRITE_SAFE_ROOT: /opt/data
+    HERMES_UID: ${HERMES_UID:-10000}
+    HERMES_GID: ${HERMES_GID:-10000}
+    HERMES_DASHBOARD: ${HERMES_DASHBOARD:-0}
+    OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    HERMES_MODEL: ${HERMES_MODEL:-anthropic/claude-sonnet-4}
+    TERM: xterm-256color
+
+services:
+  ci:
+    profiles: ["ci"]
+    build:
+      context: ..
+      dockerfile: docker/ci/Dockerfile
+    image: sexta-feira-ci:local
+    working_dir: /workspace
+    environment:
+      CARGO_TARGET_DIR: /target-docker
+      CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: 1.100.0
+    volumes:
+      - ..:/workspace
+      - cargo_registry:/usr/local/cargo/registry
+      - cargo_git:/usr/local/cargo/git
+      - target_ci:/target-docker
+
+  cli:
+    profiles: ["cli"]
+    build:
+      context: ..
+      dockerfile: docker/cli/Dockerfile
+      target: runtime
+    image: sexta-feira-cli:local
+    working_dir: /workspace
+    environment:
+      HOME: /dados
+      HERMES_HOME: /dados/.hermes
+    volumes:
+      - cli_dados:/dados
+      - ..:/workspace:ro
+
+  hermes-builder:
+    profiles: ["local"]
+    image: rust:1.100.0-slim-bookworm
+    restart: "no"
+    working_dir: /src
+    environment:
+      CARGO_TARGET_DIR: /target-linux
+      CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: 1.100.0
+    volumes:
+      - ..:/src:ro
+      - cargo_registry:/usr/local/cargo/registry
+      - cargo_git:/usr/local/cargo/git
+      - target_linux:/target-linux
+      - sexta_feira_bin:/out
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        cargo build --release --locked --manifest-path /src/Cargo.toml --package sexta-feira-cli
+        install -m 0755 /target-linux/release/sexta-feira /out/sexta-feira.tmp
+        mv -f /out/sexta-feira.tmp /out/sexta-feira
+
+  hermes:
+    <<: *hermes-base
+    profiles: ["local"]
+    depends_on:
+      hermes-builder:
+        condition: service_completed_successfully
+    working_dir: /workspace/sexta-feira
+    environment:
+      <<: *hermes-env
+      PATH: /opt/sexta-feira/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    volumes:
+      - hermes_dados:/opt/data
+      - sexta_feira_bin:/opt/sexta-feira/bin:ro
+      - ..:/workspace/sexta-feira:ro
+      - ./hermes:/opt/sexta-feira/scripts:ro
+
+  hermes-dia-zero:
+    <<: *hermes-base
+    profiles: ["dia-zero"]
+    working_dir: /opt/data
+    volumes:
+      - hermes_dados_dia_zero:/opt/data
+      - ./hermes:/opt/sexta-feira/scripts:ro
+
+volumes:
+  cargo_registry:
+  cargo_git:
+  target_ci:
+  target_linux:
+  cli_dados:
+  sexta_feira_bin:
+  hermes_dados:
+  hermes_dados_dia_zero:

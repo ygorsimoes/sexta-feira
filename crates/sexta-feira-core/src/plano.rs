@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -207,36 +208,22 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
     let mut alterou_estado = false;
 
     for acao in &plano.acoes {
-        match &acao.operacao {
-            OperacaoPlanejada::SemAlteracoes => continue,
-            OperacaoPlanejada::Criar => {
-                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
-                criados += 1;
+        let resultado_acao =
+            aplicar_acao(acao, &mut criados, &mut atualizados, &mut backups_criados);
+        if let Err(erro) = resultado_acao {
+            if alterou_estado {
+                let _ = salvar_estado(&plano.arquivo_estado, &estado);
             }
-            OperacaoPlanejada::Atualizar => {
-                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
-                atualizados += 1;
-            }
-            OperacaoPlanejada::Conflito { .. } => {
-                if acao.caminho.exists() {
-                    let backup = caminho_backup(&acao.caminho);
-                    fs::copy(&acao.caminho, &backup).map_err(|fonte| ErroDePlano::Io {
-                        caminho: backup.clone(),
-                        fonte,
-                    })?;
-                    backups_criados.push(backup);
-                }
-                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
-                atualizados += 1;
-            }
+            return Err(erro);
         }
 
         if acao.estrategia == EstrategiaDeEscrita::ArquivoIntegral {
             let chave = chave_estado(&acao.caminho, raiz_estado);
-            estado
-                .arquivos_integrais
-                .insert(chave, checksum_conteudo(&acao.conteudo_final));
-            alterou_estado = true;
+            let checksum = checksum_conteudo(&acao.conteudo_final);
+            if estado.arquivos_integrais.get(&chave) != Some(&checksum) {
+                estado.arquivos_integrais.insert(chave, checksum);
+                alterou_estado = true;
+            }
         }
     }
 
@@ -249,6 +236,40 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
         atualizados,
         backups_criados,
     })
+}
+
+fn aplicar_acao(
+    acao: &AcaoPlanejada,
+    criados: &mut usize,
+    atualizados: &mut usize,
+    backups_criados: &mut Vec<PathBuf>,
+) -> Result<(), ErroDePlano> {
+    match &acao.operacao {
+        OperacaoPlanejada::SemAlteracoes => Ok(()),
+        OperacaoPlanejada::Criar => {
+            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            *criados += 1;
+            Ok(())
+        }
+        OperacaoPlanejada::Atualizar => {
+            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            *atualizados += 1;
+            Ok(())
+        }
+        OperacaoPlanejada::Conflito { .. } => {
+            if acao.caminho.exists() {
+                let backup = caminho_backup(&acao.caminho);
+                fs::copy(&acao.caminho, &backup).map_err(|fonte| ErroDePlano::Io {
+                    caminho: backup.clone(),
+                    fonte,
+                })?;
+                backups_criados.push(backup);
+            }
+            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            *atualizados += 1;
+            Ok(())
+        }
+    }
 }
 
 /// Verifica se todos os arquivos desejados existem e estão sincronizados.
@@ -440,20 +461,41 @@ fn ler_opcional(caminho: &Path) -> Result<Option<String>, ErroDePlano> {
     }
 }
 
+static CONTADOR_TEMP_ESCRITA: AtomicU64 = AtomicU64::new(0);
+
 fn gravar_arquivo(caminho: &Path, conteudo: &str) -> Result<(), ErroDePlano> {
-    if let Some(pai) = caminho.parent()
-        && !pai.as_os_str().is_empty()
-    {
-        fs::create_dir_all(pai).map_err(|fonte| ErroDePlano::Io {
-            caminho: pai.to_path_buf(),
+    let dir_pai = match caminho.parent() {
+        Some(pai) if !pai.as_os_str().is_empty() => {
+            fs::create_dir_all(pai).map_err(|fonte| ErroDePlano::Io {
+                caminho: pai.to_path_buf(),
+                fonte,
+            })?;
+            pai
+        }
+        _ => Path::new("."),
+    };
+
+    let seq = CONTADOR_TEMP_ESCRITA.fetch_add(1, Ordering::Relaxed);
+    let nome_temp = format!(".sexta-feira-tmp-{}-{seq}", std::process::id());
+    let caminho_temp = dir_pai.join(nome_temp);
+
+    if let Err(fonte) = fs::write(&caminho_temp, conteudo) {
+        let _ = fs::remove_file(&caminho_temp);
+        return Err(ErroDePlano::Io {
+            caminho: caminho.to_path_buf(),
             fonte,
-        })?;
+        });
     }
 
-    fs::write(caminho, conteudo).map_err(|fonte| ErroDePlano::Io {
-        caminho: caminho.to_path_buf(),
-        fonte,
-    })
+    if let Err(fonte) = fs::rename(&caminho_temp, caminho) {
+        let _ = fs::remove_file(&caminho_temp);
+        return Err(ErroDePlano::Io {
+            caminho: caminho.to_path_buf(),
+            fonte,
+        });
+    }
+
+    Ok(())
 }
 
 fn carregar_estado(caminho: &Path) -> Result<EstadoAplicado, ErroDePlano> {
@@ -481,7 +523,20 @@ fn chave_estado(caminho: &Path, raiz: Option<&Path>) -> String {
 }
 
 fn caminho_backup(caminho: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.bak", caminho.display()))
+    let base = format!("{}.bak", caminho.display());
+    let inicial = PathBuf::from(&base);
+    if !inicial.exists() {
+        return inicial;
+    }
+
+    for indice in 1usize.. {
+        let candidato = PathBuf::from(format!("{base}.{indice}"));
+        if !candidato.exists() {
+            return candidato;
+        }
+    }
+
+    inicial
 }
 
 fn normalizar_quebras(texto: &str) -> String {
@@ -732,5 +787,102 @@ mod tests {
         }];
         let err = planejar(v3, estado).expect_err("marcador único deve falhar");
         assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
+    }
+
+    #[test]
+    fn aplicar_com_forcar_nao_sobrescreve_backup_anterior() {
+        let dir = DirTemporario::novo("backup-numerado");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul = dir.path().join("SOUL.md");
+        let desejados = vec![ArquivoDesejado {
+            caminho: soul.clone(),
+            conteudo: "# Gerenciado\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+
+        let p0 = planejar(desejados.clone(), estado.clone()).expect("plano inicial");
+        aplicar(&p0, false).expect("aplica inicial");
+
+        fs::write(&soul, "# Manual 1\n").expect("edição manual 1");
+        let p1 = planejar(desejados.clone(), estado.clone()).expect("plano conflito 1");
+        let r1 = aplicar(&p1, true).expect("forçar 1");
+        assert_eq!(r1.backups_criados, vec![dir.path().join("SOUL.md.bak")]);
+
+        fs::write(&soul, "# Manual 2\n").expect("edição manual 2");
+        let p2 = planejar(desejados, estado).expect("plano conflito 2");
+        let r2 = aplicar(&p2, true).expect("forçar 2");
+        assert_eq!(r2.backups_criados, vec![dir.path().join("SOUL.md.bak.1")]);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("SOUL.md.bak")).expect("lê backup 1"),
+            "# Manual 1\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("SOUL.md.bak.1")).expect("lê backup 2"),
+            "# Manual 2\n"
+        );
+    }
+
+    #[test]
+    fn aplicar_recupera_estado_quando_arquivo_integral_ja_bate_mas_estado_foi_perdido() {
+        let dir = DirTemporario::novo("recupera-estado");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul = dir.path().join("SOUL.md");
+        let v1 = vec![ArquivoDesejado {
+            caminho: soul.clone(),
+            conteudo: "# V1\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+
+        let p1 = planejar(v1.clone(), estado.clone()).expect("plano v1");
+        aplicar(&p1, false).expect("aplica v1");
+        fs::remove_file(&estado).expect("remove estado");
+
+        let p_rec = planejar(v1, estado.clone()).expect("plano recuperação");
+        assert!(matches!(
+            p_rec.acoes[0].operacao,
+            OperacaoPlanejada::SemAlteracoes
+        ));
+        aplicar(&p_rec, false).expect("aplica recuperação");
+        assert!(estado.exists(), "estado deve ser recriado");
+
+        let v2 = vec![ArquivoDesejado {
+            caminho: soul,
+            conteudo: "# V2\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+        let p2 = planejar(v2, estado).expect("plano v2");
+        assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
+    }
+
+    #[test]
+    fn aplicar_persiste_estado_parcial_quando_falha_no_meio() {
+        let dir = DirTemporario::novo("estado-parcial");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let ok_path = dir.path().join("sub");
+        let bloqueado = ok_path.join("b.md");
+
+        let desejados = vec![
+            ArquivoDesejado {
+                caminho: ok_path.clone(),
+                conteudo: "# Ok\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            },
+            ArquivoDesejado {
+                caminho: bloqueado,
+                conteudo: "# Falha\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            },
+        ];
+
+        let plano = planejar(desejados, estado.clone()).expect("planeja");
+        let err = aplicar(&plano, false).expect_err("escrita sob arquivo regular deve falhar");
+        assert!(matches!(err, ErroDePlano::Io { .. }));
+        assert!(ok_path.is_file(), "primeiro arquivo foi gravado");
+        assert!(
+            estado.exists(),
+            "estado parcial deve registrar primeiro arquivo gravado"
+        );
+        let estado_toml = fs::read_to_string(&estado).expect("lê estado parcial");
+        assert!(estado_toml.contains("sub"));
     }
 }

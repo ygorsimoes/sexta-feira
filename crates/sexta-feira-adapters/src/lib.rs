@@ -6,5 +6,8 @@
 pub mod catalogo;
 pub mod hermes;
 
-pub use catalogo::{Harness, HarnessDesconhecido};
+pub use catalogo::{
+    CaminhoDiagnosticado, DiagnosticoHarness, Harness, HarnessDesconhecido, OrigemResolucaoDestino,
+    inspecionar_ambiente_harnesses,
+};
 pub use hermes::{AdaptadorHermes, ConfiguracaoHermes, ErroDeHermes};

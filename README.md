@@ -36,7 +36,19 @@ flowchart LR
 
 ## 🚀 Início rápido
 
-### 1. Instale ou compile o binário
+### Instalar com seu próprio agente (recomendado)
+
+Peça diretamente ao agente que você já usa (Hermes, Claude Code, OpenCode, OpenClaw etc.) para ler [a skill de instalação](recursos/skills/instalar-sexta-feira/SKILL.md) e configurar tudo para você — usando a CLI `sexta-feira` quando há adapter oficial e fazendo tradução assistida de `recursos/mordomo/*.toml` nos demais harnesses:
+
+```text
+Leia https://raw.githubusercontent.com/ygorsimoes/sexta-feira/main/recursos/skills/instalar-sexta-feira/SKILL.md e instale a Sexta-feira neste ambiente seguindo as instruções.
+```
+
+---
+
+### Instalação manual pela CLI
+
+#### 1. Instale ou compile o binário
 
 > **Binário pronto (Releases):** baixe o pacote da sua plataforma na página de [Releases](https://github.com/ygorsimoes/sexta-feira/releases) (`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` ou `aarch64-apple-darwin`), confira `SHA256SUMS.txt` e coloque `sexta-feira` no seu `PATH`.
 
@@ -47,21 +59,24 @@ flowchart LR
 > # binário gerado em ./target/release/sexta-feira
 > ```
 
-### 2. Aplique o setup em 4 passos
+#### 2. Configure e aplique o setup
 
 Se estiver rodando direto do repositório sem instalar, substitua `sexta-feira` por `cargo run -q -p sexta-feira-cli --`.
 
 ```bash
-# 1. Veja os harnesses disponíveis e em desenvolvimento
-sexta-feira harnesses
+# 1. (Opcional) Inspecione ambiente, camadas de config e harnesses disponíveis
+sexta-feira diagnostico
 
-# 2. Pré-visualize o plano e o diff sem alterar nada em disco
+# 2. (Opcional) Configure tratamento e preferências de forma guiada
+sexta-feira iniciar
+
+# 3. Pré-visualize o plano e o diff sem alterar nada em disco
 sexta-feira plano hermes
 
-# 3. Aplique o perfil isolado `sexta-feira` no Hermes
+# 4. Aplique o perfil isolado `sexta-feira` no Hermes
 sexta-feira aplicar hermes
 
-# 4. Confirme que tudo está sincronizado (exit 0 quando OK)
+# 5. Confirme que tudo está sincronizado (exit 0 quando OK)
 sexta-feira verificar hermes
 ```
 
@@ -92,7 +107,7 @@ O binário embute [recursos/mordomo/persona.toml](recursos/mordomo/persona.toml)
    ]
    ```
 
-2. **Camada por execução (explícita):** passe `--persona <arquivo.toml>` e/ou `--usuario <arquivo.toml>` para `plano`, `aplicar` ou `verificar`.
+2. **Camada por execução (explícita):** passe `--persona <arquivo.toml>` e/ou `--usuario <arquivo.toml>` para `diagnostico`, `plano`, `aplicar` ou `verificar`.
 
 Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas são rejeitadas na leitura para evitar erros silenciosos de digitação.
 
@@ -102,6 +117,8 @@ Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas s�
 
 | Comando / Opção | O que faz |
 |---|---|
+| `sexta-feira iniciar` | Guia a criação/atualização segura de `usuario.toml` (interativo ou `--nao-interativo`, `--tratamento`, `--preferencia`, `--sobrescrever`) |
+| `sexta-feira diagnostico [harness]` | Inspeciona ambiente, camadas de configuração, harnesses e próximo passo recomendado |
 | `sexta-feira harnesses` | Lista todos os harnesses previstos com status (`disponível` / `em breve`) |
 | `sexta-feira plano <harness>` | Exibe ações (`CRIAR`, `ATUALIZAR`, `OK`, `REMOVER`, `CONFLITO`) e diff sem escrever no disco |
 | `sexta-feira aplicar <harness>` | Aplica o plano; falha antes de gravar se houver conflito sem `--forcar` |
@@ -110,8 +127,9 @@ Campos omitidos continuam herdando o padrão embutido, e chaves desconhecidas s�
 | `--perfil <nome>` | Escolhe o nome do perfil isolado no harness (padrão: `sexta-feira`) |
 | `--persona <arq>` / `--usuario <arq>` | Sobrescreve persona ou perfil do usuário a partir de arquivos TOML |
 | `--forcar` | Em `aplicar`, sobrescreve ou remove itens em conflito gerando backup `.bak` numerado |
+| `-v` / `--verbose` (`-vv`, `-vvv`) | Emite contexto detalhado em `stderr` (camadas, destino, estratégias, métricas e `tracing`) sem sujar `--json` |
 | `--json` | Flag global para saída estruturada em JSON (`stdout`) em qualquer subcomando |
-| `SEXTA_FEIRA_LOG=debug` | Ativa logs diagnósticos detalhados em `stderr` (padrão silencioso em `warn`) |
+| `SEXTA_FEIRA_LOG=debug` | Sobrescreve o nível do `tracing` em `stderr` (quando não definida, segue `-v`) |
 
 ---
 
@@ -135,7 +153,8 @@ sexta-feira/
 │   ├── sexta-feira-adapters/  # catálogo de harnesses e tradução para cada destino
 │   └── sexta-feira-cli/       # binário `sexta-feira`
 ├── recursos/
-│   └── mordomo/               # fonte única padrão de `persona.toml` e `usuario.toml`
+│   ├── mordomo/               # fonte única padrão de `persona.toml` e `usuario.toml`
+│   └── skills/                # skills (SKILL.md), incluindo instalação guiada por agente
 ├── docs/                      # visão, arquitetura, stack, especificações e planos
 └── .github/                   # workflows de CI, auditoria, release-please e CD
 ```

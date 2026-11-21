@@ -7,6 +7,8 @@ use sexta_feira_core::{
     AdaptadorDeSetup, ArquivoDesejado, DefinicaoDoMordomo, ErroDeAdaptador, EstrategiaDeEscrita,
 };
 
+use crate::catalogo::OrigemResolucaoDestino;
+
 /// Nome padrão do perfil isolado criado no Hermes.
 pub const PERFIL_PADRAO: &str = "sexta-feira";
 
@@ -82,15 +84,40 @@ impl ConfiguracaoHermes {
         env_home: Option<&str>,
         perfil: Option<&str>,
     ) -> Result<Self, ErroDeHermes> {
-        let hermes_home = if let Some(caminho) = hermes_home_explicito {
+        let (config, _) =
+            Self::resolver_com_origem(hermes_home_explicito, env_hermes_home, env_home, perfil)?;
+        Ok(config)
+    }
+
+    /// Resolve a configuração do Hermes e informa a origem usada para determinar o diretório base.
+    ///
+    /// # Errors
+    ///
+    /// Retorna erro se o caminho base estiver indisponível ou se o perfil for inválido.
+    pub fn resolver_com_origem(
+        hermes_home_explicito: Option<&Path>,
+        env_hermes_home: Option<&str>,
+        env_home: Option<&str>,
+        perfil: Option<&str>,
+    ) -> Result<(Self, OrigemResolucaoDestino), ErroDeHermes> {
+        let (hermes_home, origem) = if let Some(caminho) = hermes_home_explicito {
             if caminho.as_os_str().is_empty() {
                 return Err(ErroDeHermes::HermesHomeVazio);
             }
-            expandir_til(caminho, env_home)?
+            (
+                expandir_til(caminho, env_home)?,
+                OrigemResolucaoDestino::Explicito,
+            )
         } else if let Some(caminho) = env_hermes_home.map(str::trim).filter(|s| !s.is_empty()) {
-            expandir_til(Path::new(caminho), env_home)?
+            (
+                expandir_til(Path::new(caminho), env_home)?,
+                OrigemResolucaoDestino::VariavelAmbiente,
+            )
         } else if let Some(home) = env_home.map(str::trim).filter(|s| !s.is_empty()) {
-            PathBuf::from(home).join(".hermes")
+            (
+                PathBuf::from(home).join(".hermes"),
+                OrigemResolucaoDestino::PadraoHome,
+            )
         } else {
             return Err(ErroDeHermes::DiretorioBaseIndisponivel);
         };
@@ -99,12 +126,16 @@ impl ConfiguracaoHermes {
         tracing::debug!(
             hermes_home = %hermes_home.display(),
             perfil = %nome_perfil,
+            ?origem,
             "configuração do Hermes resolvida"
         );
-        Ok(Self {
-            hermes_home,
-            perfil: nome_perfil,
-        })
+        Ok((
+            Self {
+                hermes_home,
+                perfil: nome_perfil,
+            },
+            origem,
+        ))
     }
 
     /// Diretório raiz do perfil isolado (`<hermes_home>/profiles/<perfil>`).

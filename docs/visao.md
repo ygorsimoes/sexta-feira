@@ -19,7 +19,7 @@ O princípio central é manter o conhecimento do mordomo versionado fora do harn
 | Persona | Tom do J.A.R.V.I.S. (mordomo formal), nome Sexta-feira |
 | Idioma | `pt-BR` (inglês no futuro) |
 | Harnesses previstos | Hermes Agent (primeiro), OpenClaw, Claude Code, Claude Desktop/claude.ai, OpenCode |
-| Público | Uso pessoal (um único usuário) |
+| Público | Opinativo para fluxo de uso pessoal, distribuído em código aberto (MIT) para adoção e contribuições |
 | Linguagem da CLI e dos adapters | Rust |
 | Execução em runtime | Feita pelo próprio harness; a Sexta-feira não mantém um servidor/motor contínuo próprio por enquanto |
 

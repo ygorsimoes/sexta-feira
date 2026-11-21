@@ -106,7 +106,9 @@ aguardar_container() {
     local servico="$2"
     local tentativa=0
     while [ "$tentativa" -lt 30 ]; do
-        if compose --profile "$modo" exec -T -u hermes "$servico" test -w /opt/data >/dev/null 2>&1; then
+        if compose --profile "$modo" exec -T -u hermes "$servico" sh -c \
+            'test -w /opt/data && test -f /opt/data/config.yaml && test -f /opt/data/.env && pgrep -u hermes s6-svscan >/dev/null' \
+            >/dev/null 2>&1; then
             return 0
         fi
         tentativa=$((tentativa + 1))

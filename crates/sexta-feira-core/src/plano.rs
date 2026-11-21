@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -514,12 +514,45 @@ fn salvar_estado(caminho: &Path, estado: &EstadoAplicado) -> Result<(), ErroDePl
 }
 
 fn chave_estado(caminho: &Path, raiz: Option<&Path>) -> String {
-    if let Some(base) = raiz
-        && let Ok(relativo) = caminho.strip_prefix(base)
-    {
-        return relativo.to_string_lossy().into_owned();
+    let caminho_norm = normalizar_caminho(caminho);
+    if let Some(base) = raiz {
+        let base_norm = normalizar_caminho(base);
+        if let Ok(relativo) = caminho_norm.strip_prefix(&base_norm) {
+            return relativo.to_string_lossy().into_owned();
+        }
     }
-    caminho.to_string_lossy().into_owned()
+    caminho_norm.to_string_lossy().into_owned()
+}
+
+fn normalizar_caminho(caminho: &Path) -> PathBuf {
+    let absoluto = if caminho.is_relative()
+        && let Ok(cwd) = std::env::current_dir()
+    {
+        cwd.join(caminho)
+    } else {
+        caminho.to_path_buf()
+    };
+
+    let mut normalizado = PathBuf::new();
+    for componente in absoluto.components() {
+        match componente {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalizado.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalizado.pop();
+                } else if normalizado.is_relative() {
+                    normalizado.push(componente.as_os_str());
+                }
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalizado.push(componente.as_os_str());
+            }
+        }
+    }
+    normalizado
 }
 
 fn caminho_backup(caminho: &Path) -> PathBuf {
@@ -884,5 +917,36 @@ mod tests {
         );
         let estado_toml = fs::read_to_string(&estado).expect("lê estado parcial");
         assert!(estado_toml.contains("sub"));
+    }
+
+    #[test]
+    fn chave_estado_e_estavel_entre_caminho_relativo_e_absoluto() {
+        let dir = DirTemporario::novo("chave-estavel");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul_redundante = dir.path().join("sub/../SOUL.md");
+        let soul_limpo = dir.path().join("SOUL.md");
+
+        assert_eq!(chave_estado(&soul_redundante, Some(dir.path())), "SOUL.md");
+        let cwd = std::env::current_dir().expect("cwd");
+        assert_eq!(
+            chave_estado(Path::new("./sub/../SOUL.md"), Some(&cwd)),
+            "SOUL.md"
+        );
+
+        let v1 = vec![ArquivoDesejado {
+            caminho: soul_redundante,
+            conteudo: "# V1\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+        let p1 = planejar(v1, estado.clone()).expect("plano v1");
+        aplicar(&p1, false).expect("aplica v1");
+
+        let v2 = vec![ArquivoDesejado {
+            caminho: soul_limpo,
+            conteudo: "# V2\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+        let p2 = planejar(v2, estado).expect("plano v2");
+        assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
     }
 }

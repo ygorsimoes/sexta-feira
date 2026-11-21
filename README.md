@@ -1,6 +1,7 @@
 # Sexta-feira
 
 [![CI](https://github.com/ygorsimoes/sexta-feira/actions/workflows/ci.yml/badge.svg)](https://github.com/ygorsimoes/sexta-feira/actions/workflows/ci.yml)
+[![Release](https://github.com/ygorsimoes/sexta-feira/actions/workflows/release.yml/badge.svg)](https://github.com/ygorsimoes/sexta-feira/actions/workflows/release.yml)
 
 Pacote opinativo e agnóstico de harness para configurar um agente de IA como um mordomo virtual pessoal, inspirado no J.A.R.V.I.S. e na Sexta-feira dos filmes do Homem de Ferro.
 

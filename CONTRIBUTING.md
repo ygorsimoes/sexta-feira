@@ -33,18 +33,28 @@ Labels: `bug`, `funcionalidade` e `tarefa` indicam o tipo e vêm do modelo; `cor
 | Check | O que cobre |
 |---|---|
 | Formatação, lints e documentação | `cargo fmt`, `cargo clippy` com avisos como erro, `cargo doc`, dependências sem uso |
-| Testes | `cargo nextest run` |
+| Testes | `cargo nextest run` e `cargo test --doc` |
 | Dependências | `cargo deny check` (licenças, avisos de segurança, origem) |
 | Segurança dos workflows | `zizmor` |
 | Título da PR | Conventional Commits |
 
 O check `CI` resume os quatro primeiros. Além disso, o workflow `Auditoria` roda toda segunda-feira e procura avisos de segurança novos nas dependências.
 
+## Releases e CD
+
+As versões e o `CHANGELOG.md` são gerenciados automaticamente pelo [`release-please`](https://github.com/googleapis/release-please) no workflow `Release` (`.github/workflows/release.yml`), configurado por `release-please-config.json` e `.release-please-manifest.json`:
+
+1. A cada push na `main`, o `release-please` analisa os commits Conventional Commits e abre ou atualiza a PR de release (`chore(main): release X.Y.Z`), atualizando `CHANGELOG.md`, `Cargo.toml` (`[workspace.package].version`), `Cargo.lock` e `.release-please-manifest.json`.
+2. Ao fazer o merge da PR de release, o `release-please` cria a tag `vX.Y.Z` e a Release no GitHub.
+3. Em seguida, o pipeline de CD compila o binário `sexta-feira` em modo release para `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` e `aarch64-apple-darwin`, gera `SHA256SUMS.txt` e anexa os artefatos à Release.
+
+> **Importante:** como o ruleset da `main` exige os checks `CI` e `Título da PR` em toda PR, configure o secret `RELEASE_PLEASE_TOKEN` (PAT fino ou token de GitHub App com permissão de leitura/escrita em `contents`, `pull_requests` e `issues`) nas configurações do repositório. Sem ele, o `GITHUB_TOKEN` padrão ainda abre a PR de release, mas o GitHub não dispara os workflows de `pull_request` automaticamente.
+
 ## Dependências
 
 - As versões ficam em `[workspace.dependencies]` no `Cargo.toml` da raiz; as crates usam `dep.workspace = true`.
 - Bibliotecas novas seguem a lista em [docs/stack.md](docs/stack.md) e só entram quando o código passa a usá-las.
-- O Dependabot abre, toda segunda-feira, uma pull request agrupada para o Cargo, uma para as GitHub Actions e uma para a versão do Rust. Ao aceitar a do Rust, ajuste também `rust-version` no `Cargo.toml` da raiz.
+- O Dependabot abre, toda segunda-feira (com cooldown de 7 dias), PRs agrupadas para atualizações `minor`/`patch` de Cargo e GitHub Actions, PRs separadas para atualizações `major` e PR para a versão do Rust (`rust-toolchain.toml`). Ao aceitar a do Rust, ajuste também `rust-version` no `Cargo.toml` da raiz.
 - Actions são fixadas por SHA, com a versão em comentário.
 
 ## Ambiente local (opcional)

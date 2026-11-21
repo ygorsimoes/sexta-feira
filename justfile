@@ -20,6 +20,7 @@ doc:
 # Roda os testes.
 test:
     cargo nextest run --workspace --locked
+    cargo test --doc --workspace --locked
 
 # Verifica licenças e avisos de segurança das dependências.
 deny:

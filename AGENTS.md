@@ -25,7 +25,7 @@ Antes de abrir a pull request, rode localmente o que estiver disponível (`just 
 | Check | O que cobre |
 |---|---|
 | Formatação, lints e documentação | `cargo fmt`, `cargo clippy` com avisos como erro, `cargo doc`, dependências sem uso (`cargo machete`) |
-| Testes | `cargo nextest run`; snapshots do `insta` não podem mudar no CI |
+| Testes | `cargo nextest run` e `cargo test --doc`; snapshots do `insta` não podem mudar no CI |
 | Dependências | `cargo deny check` (licenças, avisos de segurança, origem) |
 | Segurança dos workflows | `zizmor` |
 | Título da PR | Conventional Commits |

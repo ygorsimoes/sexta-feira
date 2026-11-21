@@ -1,35 +1,46 @@
-name: Bug
-description: Algo não funciona como deveria.
+name: "🐛 Bug"
+description: "Relatar um comportamento incorreto ou falha na Sexta-feira."
 title: "fix: "
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Dica:** descreva o problema com clareza para agilizar a correção. **Nunca cole segredos, tokens ou dados pessoais.**
   - type: textarea
     id: o-que-aconteceu
     attributes:
-      label: O que aconteceu
-      description: Descreva o comportamento observado. Cole a saída ou o log, sem segredos.
+      label: "🔍 O que aconteceu"
+      description: "Descreva o **comportamento observado** e cole a saída ou log relevante (sem dados sensíveis)."
+      placeholder: |
+        Ao executar `sexta-feira ...`, ocorreu o erro:
+        ```text
+        ...
+        ```
     validations:
       required: true
   - type: textarea
     id: esperado
     attributes:
-      label: O que era esperado
+      label: "🎯 Comportamento esperado"
+      description: "O que deveria ter acontecido no lugar."
     validations:
       required: true
   - type: textarea
     id: como-reproduzir
     attributes:
-      label: Como reproduzir
-      description: Passos ou comandos, na ordem.
+      label: "🪜 Como reproduzir"
+      description: "Passos ou comandos exatos, em ordem."
       placeholder: |
-        1. Rodar `sexta-feira ...`
+        1. Executar `sexta-feira ...`
         2. ...
     validations:
       required: true
   - type: dropdown
     id: area
     attributes:
-      label: Área
+      label: "🗂️ Área"
+      description: "Selecione uma ou mais áreas afetadas."
       multiple: true
       options:
         - core
@@ -42,10 +53,12 @@ body:
   - type: input
     id: versao
     attributes:
-      label: Versão ou commit
-      description: Saída de `sexta-feira --version` ou o hash do commit.
+      label: "🏷️ Versão ou commit"
+      description: "Saída de `sexta-feira --version` ou hash do commit."
+      placeholder: "ex.: v0.1.0 ou 724ea64"
   - type: textarea
     id: ambiente
     attributes:
-      label: Ambiente
-      description: Sistema operacional, harness e versão do harness, quando fizer diferença.
+      label: "💻 Ambiente"
+      description: "Sistema operacional, arquitetura e versão do harness, quando aplicável."
+      placeholder: "ex.: Ubuntu 24.04 (x86_64) · Hermes Agent v..."

@@ -1,33 +1,41 @@
-name: Tarefa
-description: Manutenção, refatoração, documentação, CI ou um spike.
+name: "🧰 Tarefa"
+description: "Manutenção, refatoração, documentação, CI/CD ou spike técnico."
 title: "chore: "
 labels: [tarefa]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Dica:** use este modelo para melhorias técnicas, automações, documentação ou experimentos (`spikes/`).
   - type: textarea
     id: o-que
     attributes:
-      label: O que precisa ser feito
+      label: "📝 O que precisa ser feito"
+      description: "Descreva objetivamente o trabalho técnico ou investigação."
     validations:
       required: true
   - type: textarea
     id: por-que
     attributes:
-      label: Por quê
-      description: O que melhora ou o que se quer descobrir (no caso de um spike).
+      label: "🎯 Por quê"
+      description: "O que melhora no projeto ou o que se pretende validar (no caso de um spike)."
     validations:
       required: true
   - type: textarea
     id: pronto
     attributes:
-      label: Pronto quando
+      label: "✅ Critérios de conclusão"
+      description: "Condições objetivas para encerrar a tarefa."
       placeholder: |
+        - [ ] ...
         - [ ] ...
     validations:
       required: true
   - type: dropdown
     id: area
     attributes:
-      label: Área
+      label: "🗂️ Área"
+      description: "Selecione uma ou mais áreas impactadas."
       multiple: true
       options:
         - core

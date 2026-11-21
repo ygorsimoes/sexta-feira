@@ -2,18 +2,18 @@
 
 [![CI](https://github.com/ygorsimoes/sexta-feira/actions/workflows/ci.yml/badge.svg)](https://github.com/ygorsimoes/sexta-feira/actions/workflows/ci.yml)
 
-Plugin agnóstico de harness que transforma um agente de IA em um mordomo/assistente virtual pessoal, inspirado no J.A.R.V.I.S. e na Sexta-feira dos filmes do Homem de Ferro.
+Pacote opinativo e agnóstico de harness para configurar um agente de IA como um mordomo virtual pessoal, inspirado no J.A.R.V.I.S. e na Sexta-feira dos filmes do Homem de Ferro.
 
-O valor fica fora do harness: o motor fornece memória, ferramentas, regras de autonomia e rotinas; o harness fornece o LLM que raciocina. Cada adapter apenas traduz o motor para um harness.
+A identidade, as regras de conduta, as skills e as configurações preferidas ficam versionadas fora do harness em uma fonte única. Cada adapter apenas traduz e aplica esse setup no harness escolhido, evitando ter que configurar tudo do zero em cada máquina ou VPS.
 
 ## Situação
 
-O projeto está no início. A fundação do repositório existe (workspace, CI, convenções); o motor ainda não. O primeiro recorte (MVP) está descrito em [docs/visao.md](docs/visao.md#6-mvp).
+O projeto está no início. A fundação do repositório existe (workspace, CI, convenções); o pacote de setup e os adapters ainda não. O primeiro recorte (MVP) está descrito em [docs/visao.md](docs/visao.md#6-mvp).
 
 | Parte | Situação |
 |---|---|
 | Fundação do repositório | pronta |
-| Motor (`sexta-feira-core`) | não iniciado |
+| Modelo do setup e persona (`sexta-feira-core`) | não iniciado |
 | Adapter do Hermes | não iniciado |
 | Demais adapters | depois do MVP |
 
@@ -27,10 +27,10 @@ O projeto está no início. A fundação do repositório existe (workspace, CI, 
 
 ## Estrutura
 
-```
+```text
 crates/
-├── sexta-feira-core/      # motor, sem conhecimento de harness
-├── sexta-feira-adapters/  # tradução do motor para cada harness
+├── sexta-feira-core/      # modelo e contratos agnósticos de harness
+├── sexta-feira-adapters/  # tradução e aplicação do setup para cada harness
 └── sexta-feira-cli/       # binário `sexta-feira`
 docs/                      # visão, arquitetura e stack
 spikes/                    # experimentos descartáveis, fora do workspace

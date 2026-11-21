@@ -259,6 +259,11 @@ pub fn planejar(
 ) -> Result<PlanoDeSetup, ErroDePlano> {
     let estado = carregar_estado(&arquivo_estado)?;
     let raiz_estado = arquivo_estado.parent();
+    tracing::debug!(
+        arquivo_estado = %arquivo_estado.display(),
+        desejados = arquivos.len(),
+        "calculando plano de setup declarativo"
+    );
     let mut acoes = Vec::with_capacity(arquivos.len());
     let mut chaves_desejadas = BTreeSet::new();
 
@@ -392,8 +397,19 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
     }
 
     if alterou_estado {
+        tracing::debug!(
+            arquivo_estado = %plano.arquivo_estado.display(),
+            "persistindo estado atualizado do setup"
+        );
         salvar_estado(&plano.arquivo_estado, &estado)?;
     }
+
+    tracing::debug!(
+        criados,
+        atualizados,
+        backups = backups_criados.len(),
+        "aplicação do plano concluída"
+    );
 
     Ok(ResultadoDaAplicacao {
         criados,

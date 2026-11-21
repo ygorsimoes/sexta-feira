@@ -86,9 +86,9 @@ impl ConfiguracaoHermes {
             if caminho.as_os_str().is_empty() {
                 return Err(ErroDeHermes::HermesHomeVazio);
             }
-            caminho.to_path_buf()
+            expandir_til(caminho, env_home)?
         } else if let Some(caminho) = env_hermes_home.map(str::trim).filter(|s| !s.is_empty()) {
-            PathBuf::from(caminho)
+            expandir_til(Path::new(caminho), env_home)?
         } else if let Some(home) = env_home.map(str::trim).filter(|s| !s.is_empty()) {
             PathBuf::from(home).join(".hermes")
         } else {
@@ -96,6 +96,11 @@ impl ConfiguracaoHermes {
         };
 
         let nome_perfil = validar_perfil(perfil.unwrap_or(PERFIL_PADRAO))?;
+        tracing::debug!(
+            hermes_home = %hermes_home.display(),
+            perfil = %nome_perfil,
+            "configuração do Hermes resolvida"
+        );
         Ok(Self {
             hermes_home,
             perfil: nome_perfil,
@@ -145,6 +150,10 @@ impl AdaptadorDeSetup for AdaptadorHermes {
         definicao: &DefinicaoDoMordomo,
     ) -> Result<Vec<ArquivoDesejado>, ErroDeAdaptador> {
         let perfil_dir = self.config.diretorio_do_perfil();
+        tracing::debug!(
+            perfil_dir = %perfil_dir.display(),
+            "gerando artefatos declarativos para o Hermes"
+        );
         let soul = renderizar_soul(definicao)?;
         let user = renderizar_user(definicao);
 
@@ -164,6 +173,29 @@ impl AdaptadorDeSetup for AdaptadorHermes {
             ),
         ])
     }
+}
+
+fn expandir_til(caminho: &Path, env_home: Option<&str>) -> Result<PathBuf, ErroDeHermes> {
+    let Some(texto) = caminho.to_str() else {
+        return Ok(caminho.to_path_buf());
+    };
+    let sufixo = if texto == "~" {
+        None
+    } else if let Some(restante) = texto.strip_prefix("~/") {
+        Some(restante)
+    } else {
+        return Ok(caminho.to_path_buf());
+    };
+
+    let Some(home) = env_home.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Err(ErroDeHermes::DiretorioBaseIndisponivel);
+    };
+
+    let base = PathBuf::from(home);
+    Ok(match sufixo {
+        Some(restante) if !restante.is_empty() => base.join(restante),
+        _ => base,
+    })
 }
 
 fn validar_perfil(perfil: &str) -> Result<String, ErroDeHermes> {
@@ -388,5 +420,48 @@ mod tests {
         let conteudo_user = fs::read_to_string(&user_md).expect("lê USER.md");
         assert!(conteudo_user.contains("senhor"));
         assert!(conteudo_user.contains("- Gosta de café sem açúcar."));
+    }
+
+    #[test]
+    fn expande_til_com_home_e_rejeita_til_sem_home() {
+        let via_flag = ConfiguracaoHermes::resolver_com_env(
+            Some(Path::new("~/.hermes-custom")),
+            None,
+            Some("/home/ygor"),
+            None,
+        )
+        .expect("deve expandir ~/");
+        assert_eq!(
+            via_flag.hermes_home,
+            PathBuf::from("/home/ygor/.hermes-custom")
+        );
+
+        let via_env_raiz =
+            ConfiguracaoHermes::resolver_com_env(None, Some("~"), Some("/home/ygor"), None)
+                .expect("deve expandir ~");
+        assert_eq!(via_env_raiz.hermes_home, PathBuf::from("/home/ygor"));
+
+        let sem_home = ConfiguracaoHermes::resolver_com_env(
+            Some(Path::new("~/.hermes")),
+            None,
+            Some("   "),
+            None,
+        )
+        .expect_err("til sem HOME deve falhar");
+        assert!(matches!(sem_home, ErroDeHermes::DiretorioBaseIndisponivel));
+    }
+
+    #[test]
+    fn user_md_nao_duplica_literalmente_tratamento_e_idioma_nas_preferencias() {
+        let def = DefinicaoDoMordomo::padrao().expect("definição padrão");
+        let cfg =
+            ConfiguracaoHermes::resolver_com_env(Some(Path::new("/tmp/hermes")), None, None, None)
+                .expect("cfg");
+        let arquivos = AdaptadorHermes::new(cfg)
+            .planejar_arquivos(&def)
+            .expect("arquivos");
+        let user = &arquivos[1].conteudo;
+        assert_eq!(user.matches("senhor").count(), 1);
+        assert_eq!(user.matches("pt-BR").count(), 1);
     }
 }

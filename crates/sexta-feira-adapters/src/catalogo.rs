@@ -42,6 +42,22 @@ impl Harness {
             Self::Opencode => "opencode",
         }
     }
+
+    /// Indica se este harness já possui adaptador implementado.
+    #[must_use]
+    pub const fn disponivel(self) -> bool {
+        matches!(self, Self::Hermes)
+    }
+
+    /// Rótulo curto de disponibilidade exibido pela CLI.
+    #[must_use]
+    pub const fn rotulo_status(self) -> &'static str {
+        if self.disponivel() {
+            "disponível"
+        } else {
+            "em breve"
+        }
+    }
 }
 
 impl fmt::Display for Harness {
@@ -83,5 +99,21 @@ mod tests {
             "jarvis".parse::<Harness>(),
             Err(HarnessDesconhecido("jarvis".to_owned()))
         );
+    }
+
+    #[test]
+    fn hermes_esta_disponivel_e_demais_harnesses_em_breve() {
+        assert!(Harness::Hermes.disponivel());
+        assert_eq!(Harness::Hermes.rotulo_status(), "disponível");
+
+        for outro in [
+            Harness::Openclaw,
+            Harness::ClaudeCode,
+            Harness::ClaudeDesktop,
+            Harness::Opencode,
+        ] {
+            assert!(!outro.disponivel());
+            assert_eq!(outro.rotulo_status(), "em breve");
+        }
     }
 }

@@ -1,0 +1,9 @@
+/target
+/dist
+.git
+.superpowers
+.env
+.env.*
+!.env.example
+.DS_Store
+spikes

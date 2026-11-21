@@ -44,3 +44,4 @@ O check `CI` resume os quatro primeiros e é o exigido para o merge, junto com `
 - Actions nos workflows são fixadas por SHA, com a versão em comentário.
 - `unsafe` é proibido. `unwrap` e `expect` só em testes.
 - Segredos nunca entram no repositório.
+- Sempre utilizar o fluxo das skills do Superpowers quando disponíveis (`using-superpowers`, `brainstorming`, `writing-plans`, `test-driven-development`, `verification-before-completion`).

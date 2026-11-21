@@ -1,10 +1,12 @@
 //! Planejamento, verificação e aplicação declarativa de arquivos de setup.
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -128,7 +130,7 @@ pub enum ErroDePlano {
     /// Falha ao serializar o arquivo de estado para TOML.
     #[error("não foi possível serializar o estado do setup: {0}")]
     SerializacaoDeEstado(#[source] toml::ser::Error),
-    /// Marcadores de bloco delimitado ausentes parcialmente ou fora de ordem.
+    /// Marcadores de bloco delimitado ausentes parcialmente, duplicados ou fora de ordem.
     #[error("delimitadores inválidos em `{caminho}`: verifique os marcadores `{inicio}` e `{fim}`")]
     DelimitadoresInvalidos {
         /// Caminho do arquivo com marcadores inconsistentes.
@@ -207,36 +209,22 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
     let mut alterou_estado = false;
 
     for acao in &plano.acoes {
-        match &acao.operacao {
-            OperacaoPlanejada::SemAlteracoes => continue,
-            OperacaoPlanejada::Criar => {
-                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
-                criados += 1;
+        let resultado_acao =
+            aplicar_acao(acao, &mut criados, &mut atualizados, &mut backups_criados);
+        if let Err(erro) = resultado_acao {
+            if alterou_estado {
+                let _ = salvar_estado(&plano.arquivo_estado, &estado);
             }
-            OperacaoPlanejada::Atualizar => {
-                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
-                atualizados += 1;
-            }
-            OperacaoPlanejada::Conflito { .. } => {
-                if acao.caminho.exists() {
-                    let backup = caminho_backup(&acao.caminho);
-                    fs::copy(&acao.caminho, &backup).map_err(|fonte| ErroDePlano::Io {
-                        caminho: backup.clone(),
-                        fonte,
-                    })?;
-                    backups_criados.push(backup);
-                }
-                gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
-                atualizados += 1;
-            }
+            return Err(erro);
         }
 
         if acao.estrategia == EstrategiaDeEscrita::ArquivoIntegral {
             let chave = chave_estado(&acao.caminho, raiz_estado);
-            estado
-                .arquivos_integrais
-                .insert(chave, checksum_conteudo(&acao.conteudo_final));
-            alterou_estado = true;
+            let checksum = checksum_conteudo(&acao.conteudo_final);
+            if estado.arquivos_integrais.get(&chave) != Some(&checksum) {
+                estado.arquivos_integrais.insert(chave, checksum);
+                alterou_estado = true;
+            }
         }
     }
 
@@ -249,6 +237,40 @@ pub fn aplicar(plano: &PlanoDeSetup, forcar: bool) -> Result<ResultadoDaAplicaca
         atualizados,
         backups_criados,
     })
+}
+
+fn aplicar_acao(
+    acao: &AcaoPlanejada,
+    criados: &mut usize,
+    atualizados: &mut usize,
+    backups_criados: &mut Vec<PathBuf>,
+) -> Result<(), ErroDePlano> {
+    match &acao.operacao {
+        OperacaoPlanejada::SemAlteracoes => Ok(()),
+        OperacaoPlanejada::Criar => {
+            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            *criados += 1;
+            Ok(())
+        }
+        OperacaoPlanejada::Atualizar => {
+            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            *atualizados += 1;
+            Ok(())
+        }
+        OperacaoPlanejada::Conflito { .. } => {
+            if acao.caminho.exists() {
+                let backup = caminho_backup(&acao.caminho);
+                fs::copy(&acao.caminho, &backup).map_err(|fonte| ErroDePlano::Io {
+                    caminho: backup.clone(),
+                    fonte,
+                })?;
+                backups_criados.push(backup);
+            }
+            gravar_arquivo(&acao.caminho, &acao.conteudo_final)?;
+            *atualizados += 1;
+            Ok(())
+        }
+    }
 }
 
 /// Verifica se todos os arquivos desejados existem e estão sincronizados.
@@ -391,11 +413,11 @@ fn mesclar_bloco(
         return Ok(bloco_completo);
     };
 
-    let pos_inicio = texto.find(inicio);
-    let pos_fim = texto.find(fim);
+    let qtd_inicio = texto.matches(inicio).count();
+    let qtd_fim = texto.matches(fim).count();
 
-    match (pos_inicio, pos_fim) {
-        (None, None) => {
+    match (qtd_inicio, qtd_fim) {
+        (0, 0) => {
             if texto.trim().is_empty() {
                 Ok(bloco_completo)
             } else {
@@ -405,11 +427,20 @@ fn mesclar_bloco(
                 ))
             }
         }
-        (Some(i), Some(f)) if i < f => {
+        (1, 1)
+            if let Some(i) = texto.find(inicio)
+                && let Some(f) = texto.find(fim)
+                && i + inicio.len() <= f =>
+        {
             let antes = &texto[..i];
+            let separador = if antes.is_empty() || antes.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            };
             let restante = &texto[f + fim.len()..];
             let depois = restante.strip_prefix('\n').unwrap_or(restante);
-            Ok(format!("{antes}{bloco_completo}{depois}"))
+            Ok(format!("{antes}{separador}{bloco_completo}{depois}"))
         }
         _ => Err(ErroDePlano::DelimitadoresInvalidos {
             caminho: caminho.to_path_buf(),
@@ -440,20 +471,67 @@ fn ler_opcional(caminho: &Path) -> Result<Option<String>, ErroDePlano> {
     }
 }
 
+static CONTADOR_TEMP_ESCRITA: AtomicU64 = AtomicU64::new(0);
+
 fn gravar_arquivo(caminho: &Path, conteudo: &str) -> Result<(), ErroDePlano> {
-    if let Some(pai) = caminho.parent()
-        && !pai.as_os_str().is_empty()
-    {
-        fs::create_dir_all(pai).map_err(|fonte| ErroDePlano::Io {
-            caminho: pai.to_path_buf(),
+    let dir_pai = match caminho.parent() {
+        Some(pai) if !pai.as_os_str().is_empty() => {
+            fs::create_dir_all(pai).map_err(|fonte| ErroDePlano::Io {
+                caminho: pai.to_path_buf(),
+                fonte,
+            })?;
+            pai
+        }
+        _ => Path::new("."),
+    };
+
+    let (caminho_temp, mut arquivo) = criar_temporario_exclusivo(dir_pai, caminho)?;
+
+    if let Err(fonte) = arquivo.write_all(conteudo.as_bytes()) {
+        drop(arquivo);
+        let _ = fs::remove_file(&caminho_temp);
+        return Err(ErroDePlano::Io {
+            caminho: caminho.to_path_buf(),
             fonte,
-        })?;
+        });
+    }
+    drop(arquivo);
+
+    if let Err(fonte) = fs::rename(&caminho_temp, caminho) {
+        let _ = fs::remove_file(&caminho_temp);
+        return Err(ErroDePlano::Io {
+            caminho: caminho.to_path_buf(),
+            fonte,
+        });
     }
 
-    fs::write(caminho, conteudo).map_err(|fonte| ErroDePlano::Io {
-        caminho: caminho.to_path_buf(),
-        fonte,
-    })
+    Ok(())
+}
+
+fn criar_temporario_exclusivo(
+    dir_pai: &Path,
+    destino: &Path,
+) -> Result<(PathBuf, fs::File), ErroDePlano> {
+    loop {
+        let seq = CONTADOR_TEMP_ESCRITA.fetch_add(1, Ordering::Relaxed);
+        let nome_temp = format!(".sexta-feira-tmp-{}-{seq}", std::process::id());
+        let caminho_temp = dir_pai.join(nome_temp);
+
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&caminho_temp)
+        {
+            Ok(arquivo) => return Ok((caminho_temp, arquivo)),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(fonte) => {
+                return Err(ErroDePlano::Io {
+                    caminho: destino.to_path_buf(),
+                    fonte,
+                });
+            }
+        }
+    }
 }
 
 fn carregar_estado(caminho: &Path) -> Result<EstadoAplicado, ErroDePlano> {
@@ -472,16 +550,72 @@ fn salvar_estado(caminho: &Path, estado: &EstadoAplicado) -> Result<(), ErroDePl
 }
 
 fn chave_estado(caminho: &Path, raiz: Option<&Path>) -> String {
-    if let Some(base) = raiz
-        && let Ok(relativo) = caminho.strip_prefix(base)
-    {
-        return relativo.to_string_lossy().into_owned();
+    let caminho_norm = normalizar_caminho(caminho);
+    if let Some(base) = raiz {
+        let base_norm = normalizar_caminho(base);
+        if let Ok(relativo) = caminho_norm.strip_prefix(&base_norm) {
+            return relativo.to_string_lossy().into_owned();
+        }
     }
-    caminho.to_string_lossy().into_owned()
+    caminho_norm.to_string_lossy().into_owned()
+}
+
+fn normalizar_caminho(caminho: &Path) -> PathBuf {
+    let absoluto = if caminho.is_relative()
+        && let Ok(cwd) = std::env::current_dir()
+    {
+        cwd.join(caminho)
+    } else {
+        caminho.to_path_buf()
+    };
+
+    let mut normalizado = PathBuf::new();
+    for componente in absoluto.components() {
+        match componente {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalizado.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalizado.pop();
+                } else if normalizado.is_relative() {
+                    normalizado.push(componente.as_os_str());
+                }
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalizado.push(componente.as_os_str());
+            }
+        }
+    }
+    normalizado
 }
 
 fn caminho_backup(caminho: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.bak", caminho.display()))
+    let mut base = caminho.as_os_str().to_os_string();
+    base.push(".bak");
+    let inicial = PathBuf::from(&base);
+    if !caminho_ocupado(&inicial) {
+        return inicial;
+    }
+
+    for indice in 1usize.. {
+        let mut candidato_os = OsString::from(&base);
+        candidato_os.push(format!(".{indice}"));
+        let candidato = PathBuf::from(candidato_os);
+        if !caminho_ocupado(&candidato) {
+            return candidato;
+        }
+    }
+
+    inicial
+}
+
+fn caminho_ocupado(caminho: &Path) -> bool {
+    !matches!(
+        fs::symlink_metadata(caminho),
+        Err(err) if err.kind() == io::ErrorKind::NotFound
+    )
 }
 
 fn normalizar_quebras(texto: &str) -> String {
@@ -503,23 +637,72 @@ fn checksum_conteudo(conteudo: &str) -> String {
 fn gerar_resumo_diff(antes: &str, depois: &str) -> String {
     let linhas_antes: Vec<&str> = antes.lines().collect();
     let linhas_depois: Vec<&str> = depois.lines().collect();
-    let mut saida = String::new();
 
-    for linha in &linhas_antes {
-        if !linhas_depois.contains(linha) {
-            let _ = writeln!(saida, "- {linha}");
+    let prefixo = linhas_antes
+        .iter()
+        .zip(&linhas_depois)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let restante_antes = &linhas_antes[prefixo..];
+    let restante_depois = &linhas_depois[prefixo..];
+    let sufixo = restante_antes
+        .iter()
+        .rev()
+        .zip(restante_depois.iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let miolo_antes = &restante_antes[..restante_antes.len() - sufixo];
+    let miolo_depois = &restante_depois[..restante_depois.len() - sufixo];
+
+    let cols = miolo_depois.len() + 1;
+    let dp = tabela_lcs(miolo_antes, miolo_depois);
+    let mut saida = String::new();
+    let mut i = 0;
+    let mut j = 0;
+
+    while i < miolo_antes.len() && j < miolo_depois.len() {
+        if miolo_antes[i] == miolo_depois[j] {
+            i += 1;
+            j += 1;
+        } else if dp[(i + 1) * cols + j] >= dp[i * cols + (j + 1)] {
+            let _ = writeln!(saida, "- {}", miolo_antes[i]);
+            i += 1;
+        } else {
+            let _ = writeln!(saida, "+ {}", miolo_depois[j]);
+            j += 1;
         }
     }
-    for linha in &linhas_depois {
-        if !linhas_antes.contains(linha) {
-            let _ = writeln!(saida, "+ {linha}");
-        }
+
+    for linha in &miolo_antes[i..] {
+        let _ = writeln!(saida, "- {linha}");
+    }
+    for linha in &miolo_depois[j..] {
+        let _ = writeln!(saida, "+ {linha}");
     }
 
     if saida.is_empty() {
         let _ = writeln!(saida, "~ alteração de formatação ou quebras de linha");
     }
-    saida.trim_end().to_owned()
+    saida.trim_end_matches('\n').to_owned()
+}
+
+fn tabela_lcs(antes: &[&str], depois: &[&str]) -> Vec<usize> {
+    let n = antes.len();
+    let m = depois.len();
+    let cols = m + 1;
+    let mut dp = vec![0usize; (n + 1) * cols];
+
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i * cols + j] = if antes[i] == depois[j] {
+                dp[(i + 1) * cols + (j + 1)] + 1
+            } else {
+                dp[(i + 1) * cols + j].max(dp[i * cols + (j + 1)])
+            };
+        }
+    }
+    dp
 }
 
 #[cfg(test)]
@@ -732,5 +915,265 @@ mod tests {
         }];
         let err = planejar(v3, estado).expect_err("marcador único deve falhar");
         assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
+    }
+
+    #[test]
+    fn aplicar_com_forcar_nao_sobrescreve_backup_anterior() {
+        let dir = DirTemporario::novo("backup-numerado");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul = dir.path().join("SOUL.md");
+        let desejados = vec![ArquivoDesejado {
+            caminho: soul.clone(),
+            conteudo: "# Gerenciado\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+
+        let p0 = planejar(desejados.clone(), estado.clone()).expect("plano inicial");
+        aplicar(&p0, false).expect("aplica inicial");
+
+        fs::write(&soul, "# Manual 1\n").expect("edição manual 1");
+        let p1 = planejar(desejados.clone(), estado.clone()).expect("plano conflito 1");
+        let r1 = aplicar(&p1, true).expect("forçar 1");
+        assert_eq!(r1.backups_criados, vec![dir.path().join("SOUL.md.bak")]);
+
+        fs::write(&soul, "# Manual 2\n").expect("edição manual 2");
+        let p2 = planejar(desejados, estado).expect("plano conflito 2");
+        let r2 = aplicar(&p2, true).expect("forçar 2");
+        assert_eq!(r2.backups_criados, vec![dir.path().join("SOUL.md.bak.1")]);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("SOUL.md.bak")).expect("lê backup 1"),
+            "# Manual 1\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("SOUL.md.bak.1")).expect("lê backup 2"),
+            "# Manual 2\n"
+        );
+    }
+
+    #[test]
+    fn aplicar_recupera_estado_quando_arquivo_integral_ja_bate_mas_estado_foi_perdido() {
+        let dir = DirTemporario::novo("recupera-estado");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul = dir.path().join("SOUL.md");
+        let v1 = vec![ArquivoDesejado {
+            caminho: soul.clone(),
+            conteudo: "# V1\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+
+        let p1 = planejar(v1.clone(), estado.clone()).expect("plano v1");
+        aplicar(&p1, false).expect("aplica v1");
+        fs::remove_file(&estado).expect("remove estado");
+
+        let p_rec = planejar(v1, estado.clone()).expect("plano recuperação");
+        assert!(matches!(
+            p_rec.acoes[0].operacao,
+            OperacaoPlanejada::SemAlteracoes
+        ));
+        aplicar(&p_rec, false).expect("aplica recuperação");
+        assert!(estado.exists(), "estado deve ser recriado");
+
+        let v2 = vec![ArquivoDesejado {
+            caminho: soul,
+            conteudo: "# V2\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+        let p2 = planejar(v2, estado).expect("plano v2");
+        assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
+    }
+
+    #[test]
+    fn aplicar_persiste_estado_parcial_quando_falha_no_meio() {
+        let dir = DirTemporario::novo("estado-parcial");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let ok_path = dir.path().join("sub");
+        let bloqueado = ok_path.join("b.md");
+
+        let desejados = vec![
+            ArquivoDesejado {
+                caminho: ok_path.clone(),
+                conteudo: "# Ok\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            },
+            ArquivoDesejado {
+                caminho: bloqueado,
+                conteudo: "# Falha\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+            },
+        ];
+
+        let plano = planejar(desejados, estado.clone()).expect("planeja");
+        let err = aplicar(&plano, false).expect_err("escrita sob arquivo regular deve falhar");
+        assert!(matches!(err, ErroDePlano::Io { .. }));
+        assert!(ok_path.is_file(), "primeiro arquivo foi gravado");
+        assert!(
+            estado.exists(),
+            "estado parcial deve registrar primeiro arquivo gravado"
+        );
+        let estado_toml = fs::read_to_string(&estado).expect("lê estado parcial");
+        assert!(estado_toml.contains("sub"));
+    }
+
+    #[test]
+    fn chave_estado_e_estavel_entre_caminho_relativo_e_absoluto() {
+        let dir = DirTemporario::novo("chave-estavel");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let soul_redundante = dir.path().join("sub/../SOUL.md");
+        let soul_limpo = dir.path().join("SOUL.md");
+
+        assert_eq!(chave_estado(&soul_redundante, Some(dir.path())), "SOUL.md");
+        let cwd = std::env::current_dir().expect("cwd");
+        assert_eq!(
+            chave_estado(Path::new("./sub/../SOUL.md"), Some(&cwd)),
+            "SOUL.md"
+        );
+
+        let v1 = vec![ArquivoDesejado {
+            caminho: soul_redundante,
+            conteudo: "# V1\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+        let p1 = planejar(v1, estado.clone()).expect("plano v1");
+        aplicar(&p1, false).expect("aplica v1");
+
+        let v2 = vec![ArquivoDesejado {
+            caminho: soul_limpo,
+            conteudo: "# V2\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::ArquivoIntegral,
+        }];
+        let p2 = planejar(v2, estado).expect("plano v2");
+        assert!(matches!(p2.acoes[0].operacao, OperacaoPlanejada::Atualizar));
+    }
+
+    #[test]
+    fn bloco_delimitado_rejeita_marcadores_duplicados() {
+        let dir = DirTemporario::novo("marcadores-duplicados");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let user = dir.path().join("USER.md");
+        let inicio = "<!-- sexta-feira:inicio -->";
+        let fim = "<!-- sexta-feira:fim -->";
+
+        fs::write(
+            &user,
+            format!("{inicio}\nbloco 1\n{fim}\n\n{inicio}\nbloco 2\n{fim}\n"),
+        )
+        .expect("grava arquivo com blocos duplicados");
+
+        let desejados = vec![ArquivoDesejado {
+            caminho: user,
+            conteudo: "Tratamento: senhor\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        }];
+
+        let err = planejar(desejados, estado).expect_err("marcadores duplicados devem falhar");
+        assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
+    }
+
+    #[test]
+    fn bloco_delimitado_separa_linha_quando_prefixo_nao_termina_com_quebra() {
+        let dir = DirTemporario::novo("prefixo-sem-quebra");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let user = dir.path().join("USER.md");
+        let inicio = "<!-- sexta-feira:inicio -->";
+        let fim = "<!-- sexta-feira:fim -->";
+
+        fs::write(
+            &user,
+            format!("Prefixo sem quebra{inicio}\nantigo\n{fim}\n"),
+        )
+        .expect("grava prefixo sem quebra");
+
+        let desejados = vec![ArquivoDesejado {
+            caminho: user.clone(),
+            conteudo: "novo\n".to_owned(),
+            estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+        }];
+
+        let plano = planejar(desejados, estado).expect("planeja");
+        aplicar(&plano, false).expect("aplica");
+
+        let resultado = fs::read_to_string(&user).expect("lê resultado");
+        assert_eq!(
+            resultado,
+            format!("Prefixo sem quebra\n{inicio}\nnovo\n{fim}\n")
+        );
+    }
+
+    #[test]
+    fn resumo_diff_detecta_remocao_de_linha_duplicada() {
+        let diff = gerar_resumo_diff("a\nb\na\n", "a\nb\n");
+        assert!(
+            diff.lines().any(|linha| linha == "- a"),
+            "esperava remoção da segunda ocorrência de `a`, obteve: {diff:?}"
+        );
+    }
+
+    #[test]
+    fn resumo_diff_detecta_reordenacao_de_linhas() {
+        let diff = gerar_resumo_diff("linha 1\nlinha 2\n", "linha 2\nlinha 1\n");
+        assert!(diff.contains("- "), "esperava remoção no diff: {diff:?}");
+        assert!(diff.contains("+ "), "esperava adição no diff: {diff:?}");
+        assert!(!diff.contains("formatação"));
+    }
+
+    #[test]
+    fn resumo_diff_preserva_espaco_de_linha_vazia_removida() {
+        let diff = gerar_resumo_diff("a\n\n", "a\n");
+        assert_eq!(diff, "- ");
+    }
+
+    #[test]
+    fn resumo_diff_com_prefixo_e_sufixo_comuns_grandes() {
+        let mut antes = String::new();
+        let mut depois = String::new();
+        for idx in 0..3000 {
+            let _ = writeln!(antes, "linha comum {idx}");
+            let _ = writeln!(depois, "linha comum {idx}");
+        }
+        let _ = writeln!(antes, "valor antigo");
+        let _ = writeln!(depois, "valor novo");
+        for idx in 3000..6000 {
+            let _ = writeln!(antes, "linha comum {idx}");
+            let _ = writeln!(depois, "linha comum {idx}");
+        }
+
+        let diff = gerar_resumo_diff(&antes, &depois);
+        assert_eq!(diff, "- valor antigo\n+ valor novo");
+    }
+
+    #[test]
+    fn bloco_delimitado_rejeita_marcadores_assimetricos_e_invertidos() {
+        let dir = DirTemporario::novo("marcadores-variacoes");
+        let estado = dir.path().join(".sexta-feira-estado.toml");
+        let user = dir.path().join("USER.md");
+        let inicio = "<!-- sexta-feira:inicio -->";
+        let fim = "<!-- sexta-feira:fim -->";
+
+        for conteudo in [
+            format!("{inicio}\nbloco\n{inicio}\n{fim}\n"),
+            format!("{inicio}\nbloco\n{fim}\n{fim}\n"),
+            format!("{fim}\ninvertido\n{inicio}\n"),
+        ] {
+            fs::write(&user, conteudo).expect("grava variação inválida");
+            let desejados = vec![ArquivoDesejado {
+                caminho: user.clone(),
+                conteudo: "ok\n".to_owned(),
+                estrategia: EstrategiaDeEscrita::BlocoDelimitado { inicio, fim },
+            }];
+            let err = planejar(desejados, estado.clone()).expect_err("deve rejeitar variação");
+            assert!(matches!(err, ErroDePlano::DelimitadoresInvalidos { .. }));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn caminho_backup_nao_sobrescreve_symlink_quebrado() {
+        let dir = DirTemporario::novo("backup-symlink");
+        let soul = dir.path().join("SOUL.md");
+        let bak = dir.path().join("SOUL.md.bak");
+        std::os::unix::fs::symlink(dir.path().join("alvo-inexistente"), &bak)
+            .expect("cria symlink quebrado em .bak");
+
+        assert_eq!(caminho_backup(&soul), dir.path().join("SOUL.md.bak.1"));
     }
 }
